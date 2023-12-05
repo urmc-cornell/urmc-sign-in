@@ -1,6 +1,7 @@
 from flask import Flask
 import os
 import json
+import gspread
 
 
 # Initialise Flask App
@@ -12,10 +13,16 @@ def create_app():
     app.config.from_object("project.config")
     return app
 
-# Example 
-@app.route('/', methods=["GET"])
-def get():
-    return "hello world"
+# Create Event
+@app.route('/create/<title>/<date>/<time>', methods=["POST"])
+def create_event(title, date, time):
+    # add a new sheet in the spreadsheet with the title
+    # A1 is set to "Attendees"
+    #B1 is "info"
+    # B2 Date
+    # B3 Time
+    return "hello"
+
 
 # Run Server
 if __name__ == '__main__':
