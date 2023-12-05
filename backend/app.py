@@ -1,7 +1,6 @@
 from flask import Flask
 import os
 import json
-import gspread
 
 
 # Initialise Flask App
