@@ -1,5 +1,3 @@
-
-
 class User:
     def __init__(self, name: str, netid: str, points: int):
         self.name = name

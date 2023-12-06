@@ -2,6 +2,7 @@ from flask import Flask
 import os
 import json
 import view_model
+import errors
 
 
 # Initialise Flask App
@@ -18,8 +19,10 @@ def create_app():
 def create_event(title, date, time):
     try:
         view_model.create_event(title=str(title), date=str(date), time=str(time))
+    except errors.EventAlreadyExistsException:
+        return json.dumps({"status": "400", "message": f"Event with title {title} already exists"})    
     except:
-        raise Exception("Could not make request")
+        return json.dumps({"status": "500", "message": f"Internal Server Error :("})   
     else:
         return json.dumps({"status": "200", "message": f"Successful Request - Created {title}"})   
     
@@ -29,7 +32,7 @@ def modify_points(name, netid, points):
     try:
         view_model.add_or_update_points(name=name, netid=netid, points_to_add=points)
     except:
-        raise Exception("Could not make request")
+        return json.dumps({"status": "500", "message": f"Internal Server Error :("})
     else:
         return json.dumps({"status": "200", "message": f"Successful Request"})   
 

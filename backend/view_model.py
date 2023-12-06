@@ -1,4 +1,6 @@
 import gspread
+import errors
+
 
 # GSpread Info
 sa = gspread.service_account(filename="service_account.json")
@@ -7,11 +9,16 @@ points_sheet = sh.worksheet("Points")
 
 
 def create_event(title: str, time:str, date:str):
-    event_worksheet = sh.add_worksheet(title=title, rows=100, cols=8)
-    event_worksheet.update('A1', "Attendees")
-    event_worksheet.update('B1', f"Date: {date}")
-    event_worksheet.update('C1', f"Time: {time}")
-    
+    try:
+        event_worksheet = sh.add_worksheet(title=title, rows=100, cols=8)
+        event_worksheet.update('A1', "Attendees")
+        event_worksheet.update('B1', f"Date: {date}")
+        event_worksheet.update('C1', f"Time: {time}")
+    except gspread.exceptions.APIError:
+        raise errors.EventAlreadyExistsException
+    except:
+        return "There was an error"
+
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section
@@ -31,6 +38,5 @@ def add_or_update_points(name: str, netid: str, points_to_add: int):
             curr_value = points_sheet.acell(f'C{position}').value 
             new_value = int(curr_value) + int(points_to_add)
             # Update points cel to be this new value
-            print(f"new value is {new_value}")
             points_sheet.update(f'C{position}', int(new_value))
             print(f"Updated {name}: {curr_value} -> {new_value} points")
