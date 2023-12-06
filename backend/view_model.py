@@ -1,7 +1,6 @@
 import gspread
 import errors
 
-
 # GSpread Info
 sa = gspread.service_account(filename="service_account.json")
 sh = sa.open("URMC-Point-Tracking-SP24")
@@ -22,6 +21,12 @@ def create_event(title: str, time:str, date:str):
     
 # Create the event form 
 def create_event_form(title: str):
+    pass
+
+# Get the responses from the form at a form_id
+# Update corresponding attendance sheet
+# Update points sheet
+def retrieve_event_responses(form_id):
     pass
 
 # create the event qr code
