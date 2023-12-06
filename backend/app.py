@@ -22,6 +22,16 @@ def create_event(title, date, time):
         raise Exception("Could not make request")
     else:
         return json.dumps({"status": "200", "message": f"Successful Request - Created {title}"})   
+    
+# Add or Update Points
+@app.route('/points/<name>/<netid>/<points>', methods=["POST"])
+def modify_points(name, netid, points):
+    try:
+        view_model.add_or_update_points(name=name, netid=netid, points_to_add=points)
+    except:
+        raise Exception("Could not make request")
+    else:
+        return json.dumps({"status": "200", "message": f"Successful Request"})   
 
 # Run Server
 if __name__ == '__main__':
