@@ -1,3 +1,6 @@
 /venv
 *service_account.json
 /backend/service_account.json
+*credentials.json
+*creds.py
+/backend/creds.py
