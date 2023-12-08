@@ -14,10 +14,9 @@ def create_event(title: str, time:str, date:str):
     try:
         create_event_sheet(title=title, time=time, date=date)
         response = create_event_form(title=title)
-        print(response)
         form_id = response["id"]
-        print(form_id)
         update_form_info(form_id=form_id, title=title)
+        update_form_title(form_id=form_id, title=title)
 
         # create_event_qr_code()
     except gspread.exceptions.APIError:
@@ -38,8 +37,25 @@ def create_event_form(title: str):
             "title": f"{title}",
         }
     } 
-    response = requests.post(url=url, headers=head,json=to_send)
-    return json.loads(response.text)
+    try:
+        response = requests.post(url=url, headers=head,json=to_send)
+    except:
+        raise Exception("There was an error creating the event form")
+    else:
+        return json.loads(response.text)
+    
+def update_form_title(form_id:str, title:str):
+    url = f'https://www.googleapis.com/drive/v3/files/{form_id}'
+    head = {'Authorization': 'Bearer {}'.format(creds.token)}
+
+    to_send = {"name":f"{title}"}
+
+    try:
+        requests.patch(url=url, headers=head,json=to_send)
+    except:
+        raise Exception("Could not update form Google Drive title")
+    else:
+        print("Updated form Google Drive Title")
     
 
 def update_form_info(form_id: str, title:str):
@@ -56,24 +72,25 @@ def update_form_info(form_id: str, title:str):
                 "title": f"{title}",
             },
             "updateMask": "description, title"
-        }
+         }
     }
     ]
  }
 
     try:
-        # requests.post(url=url, headers=head,json=to_send)
-        requests.post(url=url, headers=head,json=to_send)
+        response = requests.post(url=url, headers=head,json=to_send)
     except:
-        raise Exception("Could not update form")
+        raise Exception("Could not update form description and title")
     else:
-        print("Updated form")
+        print("Updated form title")
+        return json.loads(response.text)
 
-# Get the responses from the form at a form_id
-# Update corresponding attendance sheet
-# Update points sheet
+
 def retrieve_event_responses(form_id: str):
     pass
+    # Get the responses from the form at a form_id
+    # Update corresponding attendance sheet
+    # Update points sheet
 
 # create the event qr code
 def create_event_qr_code():
