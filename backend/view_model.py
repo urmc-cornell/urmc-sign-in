@@ -16,8 +16,9 @@ def create_event(title: str, time:str, date:str):
     try:
         create_event_sheet(title=title, time=time, date=date)
         response = create_event_form(title=title)
+        print(response)
         form_id = response['formId']
-        print(form_id)
+        update_form_info(form_id=form_id)
 
         # create_event_qr_code()
     except gspread.exceptions.APIError:
@@ -41,9 +42,38 @@ def create_event_form(title: str):
     return json.loads(response.text)
     
 
+def update_form_info(form_id: str):
+    url = f'https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate'
+    head = {'Authorization': 'Bearer {}'.format(creds.token)}
 
-def update_form_info(formId: str):
-    pass
+    to_send = {
+    "requests": [
+        {
+            "createItem": {
+                "item": {
+                    "title": (
+                        "Name:"
+                    ),
+                    "questionItem": {
+                        "question": {
+                            "required": True,
+                            "textQuestion": {
+                                "paragraph": "false"
+                            },
+                        }
+                    },
+                },
+                "location": {"index": 0},
+            }
+        }
+    ]
+}
+    try:
+        requests.post(url=url, headers=head,json=to_send)
+    except:
+        raise Exception("Could not update form")
+    else:
+        print("Updated form")
         # "items": [
     #     {
     #         "itemId": "431bc60d",
