@@ -20,8 +20,8 @@ def create_event(title, date, time):
         view_model.create_event(title=str(title), date=str(date), time=str(time))
     except errors.EventAlreadyExistsException:
         return json.dumps({"status": "400", "message": f"Event with title {title} already exists"})    
-    except:
-        return json.dumps({"status": "500", "message": f"Internal Server Error :("})   
+    except Exception as e:
+        return json.dumps({"status": "500", "message": f"{e}"})   
     else:
         return json.dumps({"status": "200", "message": f"Successful Request - Created {title}"})   
     

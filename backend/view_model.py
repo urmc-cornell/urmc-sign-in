@@ -13,17 +13,21 @@ points_sheet = sh.worksheet("Points")
 def create_event(title: str, time:str, date:str):
     try:
         create_event_sheet(title=title, time=time, date=date)
+        print("Created evnet sheet")
         response = create_event_form(title=title)
+        print(response)
+        print("Created event form")
         form_id = response["id"]
         update_form_info(form_id=form_id, title=title)
+        print("updated form info")
         update_form_title(form_id=form_id, title=title)
+        print("updated form title")
         create_event_qr_code(form_id=form_id)
-
-        # create_event_qr_code()
+        print("create QR code")
     except gspread.exceptions.APIError:
         raise errors.EventAlreadyExistsException
     except:
-        raise Exception("There was an error")
+        raise Exception("There was an error calling the create event functions")
     else:
         return "Created event sheet, form, and QR Code"
     
@@ -86,12 +90,6 @@ def update_form_info(form_id: str, title:str):
         return json.loads(response.text)
 
 
-def retrieve_event_responses(form_id: str):
-    pass
-    # Get the responses from the form at a form_id
-    # Update corresponding attendance sheet
-    # Update points sheet
-
 # create the event qr code
 def create_event_qr_code(form_id:str):
     link_to_form = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
@@ -114,6 +112,15 @@ def create_event_sheet(title: str, time:str, date:str):
         raise Exception("There was an error")
     else:
         return True
+    
+def retrieve_event_responses(form_id: str):
+    pass
+    # responses_list = networking code to get list of responses for a form_id
+    # for response in responses_list:
+        # add_or_update_points(name, netid, 1)
+    
+    # Update corresponding attendance sheet
+    # Update points sheet
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section
