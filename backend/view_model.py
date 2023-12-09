@@ -17,6 +17,7 @@ def create_event(title: str, time:str, date:str):
         form_id = response["id"]
         update_form_info(form_id=form_id, title=title)
         update_form_title(form_id=form_id, title=title)
+        create_event_qr_code(form_id=form_id)
 
         # create_event_qr_code()
     except gspread.exceptions.APIError:
@@ -62,7 +63,6 @@ def update_form_info(form_id: str, title:str):
     url = f'https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate'
     head = {'Authorization': 'Bearer {}'.format(creds.token)}
 
-    # Need to use Google Drive API to update the file name
     to_send =  {
         "requests": [
             {
@@ -93,8 +93,13 @@ def retrieve_event_responses(form_id: str):
     # Update points sheet
 
 # create the event qr code
-def create_event_qr_code():
-    pass
+def create_event_qr_code(form_id:str):
+    link_to_form = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
+    qr_code_request_link = f"https://api.qrserver.com/v1/create-qr-code/?data={link_to_form}&size=150x150"
+    qr_request = requests.get(qr_code_request_link)
+    print(type(qr_request.raw))
+    print(type(qr_request.text))
+
 
 # Create the event sheet and add metadata
 def create_event_sheet(title: str, time:str, date:str):

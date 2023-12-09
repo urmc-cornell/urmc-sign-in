@@ -4,7 +4,6 @@ import json
 import view_model
 import errors
 
-
 # Initialise Flask App
 app = Flask(__name__)
 basedir = os.path.abspath(os.path.dirname(__file__))
