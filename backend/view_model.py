@@ -1,8 +1,10 @@
 import gspread
-import errors
 import json
 import requests
+# Custom Modules
+import errors
 import creds
+import models
 
 # GSpread Info
 sa = gspread.service_account(filename="service_account.json")
@@ -12,18 +14,18 @@ points_sheet = sh.worksheet("Points")
 # Function that holds sub tasks
 def create_event(title: str, time:str, date:str):
     try:
-        create_event_sheet(title=title, time=time, date=date)
-        print("Created evnet sheet")
+        event_response = create_event_sheet(title=title, time=time, date=date)
+        worksheet_id = event_response.id
         response = create_event_form(title=title)
-        print(response)
-        print("Created event form")
         form_id = response["id"]
         update_form_info(form_id=form_id, title=title)
-        print("updated form info")
         update_form_title(form_id=form_id, title=title)
-        print("updated form title")
-        create_event_qr_code(form_id=form_id)
-        print("create QR code")
+        form_link = get_form_link(form_id=form_id)
+        # create_event_qr_code(form_link=form_link)
+        title = models.Event(title=title, time=time, date=date, form_id=form_id, worksheet_id=worksheet_id,form_link=form_link) 
+        models.events.add(title)
+        print(models.events)
+
     except gspread.exceptions.APIError:
         raise errors.EventAlreadyExistsException
     except:
@@ -47,7 +49,9 @@ def create_event_form(title: str):
     except:
         raise Exception("There was an error creating the event form")
     else:
+        print("Copied base event form")
         return json.loads(response.text)
+    
     
 def update_form_title(form_id:str, title:str):
     url = f'https://www.googleapis.com/drive/v3/files/{form_id}'
@@ -80,7 +84,6 @@ def update_form_info(form_id: str, title:str):
     }
     ]
  }
-
     try:
         response = requests.post(url=url, headers=head,json=to_send)
     except:
@@ -89,20 +92,31 @@ def update_form_info(form_id: str, title:str):
         print("Updated form title")
         return json.loads(response.text)
 
+def get_form_link(form_id: str):
+    try:
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}"
+        head = {'Authorization': 'Bearer {}'.format(creds.token)}
+        request = requests.get(url=url, headers=head)
+        response = json.loads(request.text)
+        link_to_form = response['responderUri']
+    except:
+        raise Exception("There was an error getting the form link")
+    else:    
+        return link_to_form
 
 # create the event qr code
-def create_event_qr_code(form_id:str):
-    link_to_form = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
-    qr_code_request_link = f"https://api.qrserver.com/v1/create-qr-code/?data={link_to_form}&size=150x150"
+def create_event_qr_code(form_link:str):
+    # link_to_form = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
+    qr_code_request_link = f"https://api.qrserver.com/v1/create-qr-code/?data={form_link}&size=150x150"
     qr_request = requests.get(qr_code_request_link)
-    print(type(qr_request.raw))
-    print(type(qr_request.text))
-
+    # print(type(qr_request.raw))
+    # print(type(qr_request.text))
+    return qr_request
 
 # Create the event sheet and add metadata
 def create_event_sheet(title: str, time:str, date:str):
     try:
-        event_worksheet = sh.add_worksheet(title=title, rows=100, cols=8)
+        response = event_worksheet = sh.add_worksheet(title=title, rows=100, cols=8)
         event_worksheet.update('A1', "Attendees")
         event_worksheet.update('B1', f"Date: {date}")
         event_worksheet.update('C1', f"Time: {time}")
@@ -111,16 +125,30 @@ def create_event_sheet(title: str, time:str, date:str):
     except:
         raise Exception("There was an error")
     else:
-        return True
+        return response
     
-def retrieve_event_responses(form_id: str):
-    pass
-    # responses_list = networking code to get list of responses for a form_id
-    # for response in responses_list:
-        # add_or_update_points(name, netid, 1)
-    
-    # Update corresponding attendance sheet
-    # Update points sheet
+def retrieve_event_responses(form_id: str, sheet_id: int):
+    try:
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+        head = {'Authorization': 'Bearer {}'.format(creds.token)}
+        request = requests.get(url=url, headers=head)
+        response = json.loads(request.text)
+        form_responses = response['responses']
+        print(form_responses)
+        
+        # for submission in form_responses:
+             # add_or_update_points(name, netid, 1)
+                    
+             # Update corresponding attendance sheet
+                 # have to figure out how imma do this tbh
+
+    except:
+        raise Exception("Error trying to get event responses")
+    else:
+        print("Retrieved event responses")
+
+
+
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section

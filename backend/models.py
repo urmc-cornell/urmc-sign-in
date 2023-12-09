@@ -8,14 +8,27 @@ class User:
         return f"{self.name}({self.netid}): {self.points} points"
 
 class Event:
-    def __init__(self, title: str, time: str, date: str, attendees: list):
+    def __init__(self, title: str, time: str, date: str, form_id: str, worksheet_id: int, form_link:str):
         self.title = title
         self.date = date
         self.time = time
-        self.attendees = attendees
+        self.form_id = form_id
+        self.worksheet_id = worksheet_id
+        self.form_link = form_link
+    
+    def __repr__(self):
+        return f"link to form: {self.form_link} : worksheet_id: {self.worksheet_id} : form_id: {self.form_id} "
     
     def __str__(self):
-        return f"{self.title} on {self.date} @ {self.time}"
-    
-    def get_attendees(self):
-        return self.attendees
+        to_return = {
+            "title": f"{self.title}",
+            "date": f"{self.date}",
+            "time": f"{self.time}",
+            "title": f"{self.title}",
+            "form_id": f"{self.form_id}",
+            "link_to_form": f"{self.form_link}",
+            "worksheet_id": f"{self.worksheet_id}"
+        }
+        return to_return
+
+events = set()
