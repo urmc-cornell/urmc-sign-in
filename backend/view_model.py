@@ -52,7 +52,6 @@ def create_event_form(title: str):
         print("Copied base event form")
         return json.loads(response.text)
     
-    
 def update_form_title(form_id:str, title:str):
     url = f'https://www.googleapis.com/drive/v3/files/{form_id}'
     head = {'Authorization': 'Bearer {}'.format(creds.token)}
@@ -66,7 +65,6 @@ def update_form_title(form_id:str, title:str):
     else:
         print("Updated form Google Drive Title")
     
-
 def update_form_info(form_id: str, title:str):
     url = f'https://forms.googleapis.com/v1/forms/{form_id}:batchUpdate'
     head = {'Authorization': 'Bearer {}'.format(creds.token)}
@@ -106,7 +104,6 @@ def get_form_link(form_id: str):
 
 # create the event qr code
 def create_event_qr_code(form_link:str):
-    # link_to_form = f"https://docs.google.com/forms/d/e/{form_id}/viewform"
     qr_code_request_link = f"https://api.qrserver.com/v1/create-qr-code/?data={form_link}&size=150x150"
     qr_request = requests.get(qr_code_request_link)
     # print(type(qr_request.raw))
@@ -146,9 +143,6 @@ def retrieve_event_responses(form_id: str, sheet_id: int):
         raise Exception("Error trying to get event responses")
     else:
         print("Retrieved event responses")
-
-
-
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section
