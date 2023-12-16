@@ -186,5 +186,18 @@ def get_top_points(number: int):
         
         return list_of_people[:int(number)]
 
+def get_netid_points(netid: str):
+    try:
+        position = points_sheet.find(netid).row
+    # User DNE in Sheet
+    except:
+        return "DNE"
+    # User exists in sheet
+    else:
+        if position != None:
+            curr_value = points_sheet.acell(f'C{position}').value 
+            return curr_value
+
+
 
 

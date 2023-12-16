@@ -46,6 +46,21 @@ def get_top_points(number):
     else:
         # return a json with the information and the status
         return list_of_people
+    
+
+# Get top x number of people in terms of points
+@app.route('/points/person/<netid>', methods=["GET"])
+def get_netid_points(netid):
+    try:
+        points = view_model.get_netid_points(netid=netid)
+    except Exception as e:
+        return json.dumps({"status": "500", "message": f"Internal Server Error :(. {e}"})
+    else:
+        # return a json with the information and the status
+        if points == "DNE":
+            return json.dumps({"status": "404", "message": "NetID not found"})
+        else:
+            return json.dumps({"points":points})
 
 
 # Run Server
