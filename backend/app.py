@@ -33,7 +33,20 @@ def modify_points(name, netid, points):
     except:
         return json.dumps({"status": "500", "message": f"Internal Server Error :("})
     else:
-        return json.dumps({"status": "200", "message": f"Successful Request"})   
+        return json.dumps({"status": "200", "message": f"Successful Request"})  
+
+
+# Get top x number of people in terms of points
+@app.route('/points/<number>', methods=["GET"])
+def get_top_points(number):
+    try:
+        list_of_people = view_model.get_top_points(number=number)
+    except Exception as e:
+        return json.dumps({"status": "500", "message": f"Internal Server Error :(. {e}"})
+    else:
+        # return a json with the information and the status
+        return list_of_people
+
 
 # Run Server
 if __name__ == '__main__':

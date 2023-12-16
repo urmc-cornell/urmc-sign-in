@@ -164,3 +164,27 @@ def add_or_update_points(name: str, netid: str, points_to_add: int):
             # Update points cel to be this new value
             points_sheet.update(f'C{position}', int(new_value))
             print(f"Updated {name}: {curr_value} -> {new_value} points")
+
+
+def get_top_points(number: int):
+    # get all values, then sort by points
+    # assert type(number) == int
+    try:
+        point_info = points_sheet.get_all_records()
+    except Exception as e:
+        raise Exception(f"Could not get top {number} due to {e}")
+    else:
+        list_of_people = []
+        for entry in point_info:
+            if entry['Netid'] != '':
+                list_of_people.append({"name": f"{entry['Name']}","netid": f"{entry['Netid']}","points": f"{entry['Points']}"})
+
+        list_of_people.sort(key=lambda x: x['points'], reverse=True)
+
+        if int(number) > len(list_of_people):
+            number = len(list_of_people)
+        
+        return list_of_people[:int(number)]
+
+
+
