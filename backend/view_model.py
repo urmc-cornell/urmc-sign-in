@@ -198,6 +198,18 @@ def get_netid_points(netid: str):
             curr_value = points_sheet.acell(f'C{position}').value 
             return curr_value
 
+def get_points_from_spreadsheet(link_to_sheet: str, points_to_add: int):
+    worksheet = sa.open_by_url(link_to_sheet)
+
+    people = []
+    # find col with netid text
+        # get all the values in this col
+    # find col with name text
+        # get all vals in this col
+    # add people as a tuple (netid, name) to people list
+
+    # Update person's points for attending the event
+    add_or_update_points(name=name, netid=netid, points_to_add=1)
 
 
 
