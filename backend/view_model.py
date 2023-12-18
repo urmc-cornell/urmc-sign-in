@@ -199,17 +199,29 @@ def get_netid_points(netid: str):
             return curr_value
 
 def get_points_from_spreadsheet(link_to_sheet: str, points_to_add: int):
-    worksheet = sa.open_by_url(link_to_sheet)
-
+    spreadsheet = sa.open_by_url(link_to_sheet)
+    worksheet = spreadsheet.worksheet("Form Responses 1")
     people = []
-    # find col with netid text
-        # get all the values in this col
-    # find col with name text
-        # get all vals in this col
-    # add people as a tuple (netid, name) to people list
+    try:
+        find_netid_column = worksheet.find("NetID:")
+        find_name_column = worksheet.find("Name:")
+    except:
+        raise Exception("Error getting name or netid from spreadsheet")
+    else:
+        netid_column = find_netid_column.col
+        name_column = find_name_column.col
+        netid_list = worksheet.col_values(netid_column)
+        name_list = worksheet.col_values(name_column)
 
-    # Update person's points for attending the event
-    add_or_update_points(name=name, netid=netid, points_to_add=1)
+        # add people as a tuple (netid, name) to people list
+        for index in range(1, len(name_list)):
+            people.append((netid_list[index], name_list[index]))
+
+        # Update person's points for attending the event
+        for person in people:
+            add_or_update_points(name=person[1], netid=person[0], points_to_add=points_to_add)
+        
+        print(f"Updated points for {len(people)} people")
 
 
 
