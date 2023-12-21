@@ -25,7 +25,7 @@ def create_event(title, date, time):
     else:
         return json.dumps({"status": "200", "message": f"Successful Request - Created {title}"})   
     
-# Add or Update Points
+# Add or Update Points for a specifc netid
 @app.route('/points/<name>/<netid>/<points>', methods=["POST"])
 def modify_points(name, netid, points):
     try:
@@ -34,7 +34,16 @@ def modify_points(name, netid, points):
         return json.dumps({"status": "500", "message": f"Internal Server Error :("})
     else:
         return json.dumps({"status": "200", "message": f"Successful Request"})  
-
+    
+# Get points from form responses
+@app.route('/points/spreadsheet/<spreadsheet_id>/<points>', methods=["GET"])
+def get_points_from_responses(spreadsheet_id, points):
+    try:
+        view_model.get_points_from_spreadsheet(spreadsheet_id=spreadsheet_id, points_to_add=points)
+    except Exception as e:
+        return json.dumps({"status": "500", "message": f"Internal Server Error :(. {e}"})
+    else:
+        return json.dumps({"status": "200", "message": "Successful Request"})
 
 # Get top x number of people in terms of points
 @app.route('/points/<number>', methods=["GET"])
@@ -47,7 +56,7 @@ def get_top_points(number):
         # return a json with the information and the status
         return list_of_people
     
-# Get top x number of people in terms of points
+# Get points for specifc netid
 @app.route('/points/person/<netid>', methods=["GET"])
 def get_netid_points(netid):
     try:
@@ -60,6 +69,7 @@ def get_netid_points(netid):
             return json.dumps({"status": "404", "message": "NetID not found"})
         else:
             return json.dumps({"points":points})
+
 
 # Run Server
 if __name__ == '__main__':

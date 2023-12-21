@@ -15,7 +15,7 @@ points_sheet = sh.worksheet("Points")
 def create_event(title: str, time:str, date:str):
     try:
         event_response = create_event_sheet(title=title, time=time, date=date)
-        worksheet_id = event_response.id
+        worksheet_id = event_response.id    
         response = create_event_form(title=title)
         form_id = response["id"]
         update_form_info(form_id=form_id, title=title)
@@ -124,25 +124,25 @@ def create_event_sheet(title: str, time:str, date:str):
     else:
         return response
     
-def retrieve_event_responses(form_id: str, sheet_id: int):
-    try:
-        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
-        head = {'Authorization': 'Bearer {}'.format(creds.token)}
-        request = requests.get(url=url, headers=head)
-        response = json.loads(request.text)
-        form_responses = response['responses']
-        print(form_responses)
+# def retrieve_event_responses(form_id: str, sheet_id: int):
+#     try:
+#         url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+#         head = {'Authorization': 'Bearer {}'.format(creds.token)}
+#         request = requests.get(url=url, headers=head)
+#         response = json.loads(request.text)
+#         form_responses = response['responses']
+#         print(form_responses)
         
-        # for submission in form_responses:
-             # add_or_update_points(name, netid, 1)
+#         # for submission in form_responses:
+#              # add_or_update_points(name, netid, 1)
                     
-             # Update corresponding attendance sheet
-                 # have to figure out how imma do this tbh
+#              # Update corresponding attendance sheet
+#                  # have to figure out how imma do this tbh
 
-    except:
-        raise Exception("Error trying to get event responses")
-    else:
-        print("Retrieved event responses")
+#     except:
+#         raise Exception("Error trying to get event responses")
+#     else:
+#         print("Retrieved event responses")
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section
@@ -198,8 +198,8 @@ def get_netid_points(netid: str):
             curr_value = points_sheet.acell(f'C{position}').value 
             return curr_value
 
-def get_points_from_spreadsheet(link_to_sheet: str, points_to_add: int):
-    spreadsheet = sa.open_by_url(link_to_sheet)
+def get_points_from_spreadsheet(spreadsheet_id: str, points_to_add: int):
+    spreadsheet = sa.open_by_key(str(spreadsheet_id))
     worksheet = spreadsheet.worksheet("Form Responses 1")
     people = []
     try:
@@ -214,8 +214,10 @@ def get_points_from_spreadsheet(link_to_sheet: str, points_to_add: int):
         name_list = worksheet.col_values(name_column)
 
         # add people as a tuple (netid, name) to people list
+        # need to start at index 1 to avoid adding ("NetID:", "Name:") to spreadsheet
         for index in range(1, len(name_list)):
             people.append((netid_list[index], name_list[index]))
+            print(netid_list[index])
 
         # Update person's points for attending the event
         for person in people:
