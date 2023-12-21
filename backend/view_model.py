@@ -123,26 +123,6 @@ def create_event_sheet(title: str, time:str, date:str):
         raise Exception("There was an error")
     else:
         return response
-    
-# def retrieve_event_responses(form_id: str, sheet_id: int):
-#     try:
-#         url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
-#         head = {'Authorization': 'Bearer {}'.format(creds.token)}
-#         request = requests.get(url=url, headers=head)
-#         response = json.loads(request.text)
-#         form_responses = response['responses']
-#         print(form_responses)
-        
-#         # for submission in form_responses:
-#              # add_or_update_points(name, netid, 1)
-                    
-#              # Update corresponding attendance sheet
-#                  # have to figure out how imma do this tbh
-
-#     except:
-#         raise Exception("Error trying to get event responses")
-#     else:
-#         print("Retrieved event responses")
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     # MARK: Updating Points Section
@@ -198,6 +178,9 @@ def get_netid_points(netid: str):
             curr_value = points_sheet.acell(f'C{position}').value 
             return curr_value
 
+
+# Get points from a Google Spreadsheet
+# Good to use if a form was made that did not copy the base template
 def get_points_from_spreadsheet(spreadsheet_id: str, points_to_add: int):
     spreadsheet = sa.open_by_key(str(spreadsheet_id))
     worksheet = spreadsheet.worksheet("Form Responses 1")
@@ -225,5 +208,25 @@ def get_points_from_spreadsheet(spreadsheet_id: str, points_to_add: int):
         
         print(f"Updated points for {len(people)} people")
 
+# Get points via the responses object from Google Forms
+# This is good to use when collecting responses from an event that copied the base template
+def retrieve_event_responses(form_id: str, points_to_add: int):
+    try:
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+        head = {'Authorization': 'Bearer {}'.format(creds.token)}
+        request = requests.get(url=url, headers=head)
+        response = json.loads(request.text)
+        form_responses = response['responses']
+        
+        # check that this works from other form responses as well
+        # test on forms that were not copied from base event
+        for submission in form_responses:
+            submission_info = submission['answers']
+            name = submission_info["7650a8fe"]['textAnswers']['answers'][0]['value']
+            netid = submission_info["4059b2ed"]['textAnswers']['answers'][0]['value']
+            add_or_update_points(name, netid, points_to_add)
 
-
+    except Exception as e:
+        raise Exception(f"{e}")
+    else:
+        print("Retrieved event responses")

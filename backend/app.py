@@ -35,11 +35,23 @@ def modify_points(name, netid, points):
     else:
         return json.dumps({"status": "200", "message": f"Successful Request"})  
     
-# Get points from form responses
+# Get points from form via a google sheet. Need to have column with "NetID:" and a column with "Name:"
+# Good for cases when the base form wasn't used to make the form
 @app.route('/points/spreadsheet/<spreadsheet_id>/<points>', methods=["GET"])
-def get_points_from_responses(spreadsheet_id, points):
+def get_points_from_spreadhseet(spreadsheet_id, points):
     try:
         view_model.get_points_from_spreadsheet(spreadsheet_id=spreadsheet_id, points_to_add=points)
+    except Exception as e:
+        return json.dumps({"status": "500", "message": f"Internal Server Error :(. {e}"})
+    else:
+        return json.dumps({"status": "200", "message": "Successful Request"})
+    
+# Get points via the responses object from Google Forms
+# This is good to use when collecting responses from an event that copied the base template
+@app.route('/points/form/<form_id>/<points>', methods=["GET"])
+def get_points_from_form_responses(form_id, points):
+    try:
+        view_model.retrieve_event_responses(form_id=form_id, points_to_add=points)
     except Exception as e:
         return json.dumps({"status": "500", "message": f"Internal Server Error :(. {e}"})
     else:
