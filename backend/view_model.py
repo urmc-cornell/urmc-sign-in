@@ -22,16 +22,14 @@ def create_event(title: str, time:str, date:str):
         update_form_title(form_id=form_id, title=title)
         form_link = get_form_link(form_id=form_id)
         # create_event_qr_code(form_link=form_link)
-        title = models.Event(title=title, time=time, date=date, form_id=form_id, worksheet_id=worksheet_id,form_link=form_link) 
-        models.events.add(title)
-        print(models.events)
+        new_event = models.Event(title=title, time=time, date=date, form_id=form_id, worksheet_id=worksheet_id,form_link=form_link) 
 
     except gspread.exceptions.APIError:
         raise errors.EventAlreadyExistsException
-    except:
-        raise Exception("There was an error calling the create event functions")
+    except Exception as e:
+        raise Exception(f"There was an error calling the create event functions: {e}")
     else:
-        return "Created event sheet, form, and QR Code"
+        return new_event.serialize()
     
 # Create the event form 
 # Copying base form file

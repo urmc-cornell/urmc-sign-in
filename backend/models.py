@@ -42,9 +42,9 @@ class Event:
     
     def __repr__(self):
         return f"link to form: {self.form_link} : worksheet_id: {self.worksheet_id} : form_id: {self.form_id} "
-    
+        
     def __str__(self):
-        to_return = {
+        return {
             "title": f"{self.title}",
             "date": f"{self.date}",
             "time": f"{self.time}",
@@ -53,6 +53,14 @@ class Event:
             "link_to_form": f"{self.form_link}",
             "worksheet_id": f"{self.worksheet_id}"
         }
-        return to_return
 
-events = set()
+    def serialize(self):
+        return {
+            "title": f"{self.title}",
+            "date": f"{self.date}",
+            "time": f"{self.time}",
+            "title": f"{self.title}",
+            "form_id": f"{self.form_id}",
+            "link_to_form": f"{self.form_link}",
+            "worksheet_id": f"{self.worksheet_id}"
+        }

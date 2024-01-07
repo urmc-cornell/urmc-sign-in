@@ -17,13 +17,18 @@ def create_app():
 @app.route('/create/<title>/<date>/<time>', methods=["POST"])
 def create_event(title, date, time):
     try:
-        view_model.create_event(title=str(title), date=str(date), time=str(time))
+        new_event = view_model.create_event(title=str(title), date=str(date), time=str(time))
     except errors.EventAlreadyExistsException:
         return json.dumps({"status": "400", "message": f"Event with title {title} already exists"})    
     except Exception as e:
         return json.dumps({"status": "500", "message": f"{e}"})   
     else:
-        return json.dumps({"status": "200", "message": f"Successful Request - Created {title}"})   
+        return json.dumps(
+            {
+            "status": "200", 
+            "message": f"Successful Request - Created {title}",
+            "details": new_event
+             })   
     
 # Add or Update Points for a specifc netid
 @app.route('/points/<name>/<netid>/<points>', methods=["POST"])
@@ -80,7 +85,7 @@ def get_netid_points(netid):
         if points == "DNE":
             return json.dumps({"status": "404", "message": "NetID not found"})
         else:
-            return json.dumps({"points":points})
+            return json.dumps({"status": "200", "points":points})
 
 
 # Run Server
