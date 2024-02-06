@@ -162,7 +162,12 @@ def get_top_points(number: int):
         if int(number) > len(list_of_people):
             number = len(list_of_people)
         
-        return list_of_people[:int(number)]
+        # return list_of_people[:int(number)]
+        list_of_people_cutoff = list_of_people[:int(number)]
+        position = 0
+        for person in list_of_people_cutoff:
+            position += 1
+            print(f"{position}. {person['name']} ({person['netid']}) : {person['points']}")
 
 def get_netid_points(netid: str):
     try:
