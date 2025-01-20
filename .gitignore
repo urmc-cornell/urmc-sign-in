@@ -7,3 +7,6 @@
 *quickstart.py
 /backend/__pycache__
 key.rtf
+client_secrets.json
+token.pickle
+.env

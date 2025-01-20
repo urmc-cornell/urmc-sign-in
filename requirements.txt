@@ -21,3 +21,5 @@ rsa==4.9
 urllib3==2.1.0
 Werkzeug==3.0.1
 zipp==3.17.0
+supabase==2.0.3
+python-dotenv==1.0.1
