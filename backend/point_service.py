@@ -3,6 +3,8 @@ import os
 import json
 import requests
 from dotenv import load_dotenv
+import pickle
+import os.path
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +21,14 @@ semester = "sp25"
 def main():
     # add_or_update_points("Temi Adebowale", "bbwij34", 2)
     retrieve_event_responses("1SHeCzKB0kczyjTD26fzQabYWYf6U50QVqtan_MA408Q", 3)
+
+def get_oauth_token():
+    if os.path.exists('token.pickle'):
+        with open('token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+            if creds and creds.valid:
+                return creds.token
+    raise Exception("No valid token found. Please run generate_token.py first")
 
 def add_or_update_points(name: str, netid: str, points_to_add: int):
     try:
@@ -58,7 +68,9 @@ def retrieve_event_responses(form_id: str, points_to_add: int):
     try:
         # Get form responses using Google Forms API
         url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
-        head = {'Authorization': 'Bearer {}'.format(os.getenv('GOOGLE_OAUTH_TOKEN'))}
+        token = get_oauth_token()
+        head = {'Authorization': f'Bearer {token}'}
+        # head = {'Authorization': 'Bearer {}'.format(os.getenv('GOOGLE_OAUTH_TOKEN'))}
         
         # First, get the form structure to find question IDs
         form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
