@@ -94,6 +94,17 @@ def process_form():
     form_id = request.form['form_id']
     points_value = int(request.form['points_value'])
     
+    # Retrieve credentials from session
+    credentials_info = session.get('credentials')
+    credentials = Credentials(
+        token=credentials_info['token'],
+        refresh_token=credentials_info['refresh_token'],
+        token_uri=credentials_info['token_uri'],
+        client_id=credentials_info['client_id'],
+        client_secret=credentials_info['client_secret'],
+        scopes=credentials_info['scopes']
+    )
+    
     try:
         # If credentials are not provided, raise an error
         if not credentials:
