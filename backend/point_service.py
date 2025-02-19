@@ -5,6 +5,7 @@ import requests
 from dotenv import load_dotenv
 import pickle
 import os.path
+from slack_service import send_points_notification
 
 # Load environment variables
 load_dotenv()
@@ -19,30 +20,39 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
     try:
         semester = "sp25"
         # First check if member exists
-        response = supabase.table('members').select('id').eq('netid', netid.lower()).execute()
+        response = supabase.table('members').select('id, email').eq('netid', netid.lower()).execute()
 
         if not response.data:
             # Member doesn't exist, create new member
             member_data = {
                 'netid': netid.lower(),
-                'first_name': name.split()[0],
-                'last_name': name.split()[-1] if len(name.split()) > 1 else '',
+                'first_name': name.split()[0] if name else '',
+                'last_name': name.split()[-1] if name and len(name.split()) > 1 else '',
+                'email': f"{netid.lower()}@cornell.edu"
             }
             member_response = supabase.table('members').insert(member_data).execute()
             member_id = member_response.data[0]['id']
+            member_email = member_response.data[0]['email']
         else:
             member_id = response.data[0]['id']
+            # Default to Cornell email if email field is None or empty
+            member_email = response.data[0].get('email') or f"{netid.lower()}@cornell.edu"
 
-         # Add points
+        # Add points
         points_data = {
             'member_id': member_id,
             'points': int(points_to_add),
-            'semester': semester, 
+            'semester': semester,
             'reason': reason
         }
 
         points_response = supabase.table('points_tracking').insert(points_data).execute()
-        print(f"Added {points_to_add} points for {name}")
+        
+        # Send Slack notification
+        if member_email:
+            send_points_notification(member_email, points_to_add, reason)
+            
+        print(f"Added {points_to_add} points for {name or netid}")
         return points_response.data
     
     except Exception as e:
