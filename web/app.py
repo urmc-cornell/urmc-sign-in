@@ -119,6 +119,13 @@ def process_form(eboard):
     except Exception as e:
         return f"Error: {str(e)}", 500
 
+@app.route('/logout')
+def logout():
+    # Clear the session
+    session.clear()
+    # Redirect to home page (which will then redirect to login)
+    return redirect('/')
+
 if __name__ == '__main__':
     # Run the app on localhost:8080
     app.run('localhost',8080,debug=True)

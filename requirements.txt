@@ -52,3 +52,4 @@ urllib3==2.1.0
 websockets==12.0
 Werkzeug==3.0.1
 zipp==3.17.0
+slack-sdk==3.27.1
