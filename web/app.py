@@ -10,7 +10,8 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS
 # Add backend directory to path so we can import point_service
 backend_dir = Path(__file__).parent.parent / 'backend'
 sys.path.append(str(backend_dir))
-from point_service import add_or_update_points, retrieve_event_responses
+
+from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -85,9 +86,9 @@ def update_points():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
-@app.route('/process_form', methods=['POST'])
-def process_form():
-    # If user is not logged in, redirect to login page
+@app.route('/process_form/<eboard>', methods=['POST'])
+def process_form(eboard):
+    # If user is not logged in, redirect to login page 
     if 'credentials' not in session:
         return redirect('/login')
     # Get the form id and points value from the request
@@ -110,7 +111,10 @@ def process_form():
         if not credentials:
             raise ValueError("Credentials are required")
         # Retrieve and process the form responses
-        retrieve_event_responses(form_id, points_value, credentials)
+        if eboard == 'eboard':
+            retrieve_eboard_responses(form_id, credentials)
+        else:
+            retrieve_event_responses(form_id, points_value, credentials)
         return "Form responses processed successfully!"
     except Exception as e:
         return f"Error: {str(e)}", 500
