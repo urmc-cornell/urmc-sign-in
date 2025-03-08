@@ -11,7 +11,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS
 backend_dir = Path(__file__).parent.parent / 'backend'
 sys.path.append(str(backend_dir))
 
-from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses
+from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -86,14 +86,17 @@ def update_points():
     except Exception as e:
         return f"Error: {str(e)}", 500
 
-@app.route('/process_form/<eboard>', methods=['POST'])
-def process_form(eboard):
+@app.route('/process_form/<form_type>', methods=['POST'])
+def process_form(form_type):
     # If user is not logged in, redirect to login page 
     if 'credentials' not in session:
         return redirect('/login')
     # Get the form id and points value from the request
     form_id = request.form['form_id']
-    points_value = int(request.form['points_value'])
+    if form_type != 'eboard' and form_type != 'ta':
+        points_value = int(request.form['points_value'])
+    else:
+        points_value = 0
     
     # Retrieve credentials from session
     credentials_info = session.get('credentials')
@@ -111,8 +114,10 @@ def process_form(eboard):
         if not credentials:
             raise ValueError("Credentials are required")
         # Retrieve and process the form responses
-        if eboard == 'eboard':
+        if form_type == 'eboard':
             retrieve_eboard_responses(form_id, credentials)
+        elif form_type == 'ta':
+            retrieve_ta_responses(form_id, credentials)
         else:
             retrieve_event_responses(form_id, points_value, credentials)
         return "Form responses processed successfully!"

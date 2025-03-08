@@ -251,7 +251,108 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
     else:
         print(f"Retrieved and processed {len(form_responses)} responses")
 
+def retrieve_ta_responses(form_id: str, credentials=None):
+    try:
+        # If credentials provided, use them. Otherwise use existing token logic
+        if not credentials:
+            raise ValueError("Credentials are required")
+    
+        token = credentials.token
 
+        # Get form responses using Google Forms API
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+        head = {'Authorization': f'Bearer {token}'}
+        
+        # First, get the form structure to find question IDs
+        form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
+        form_request = requests.get(url=form_url, headers=head)
+        form_data = json.loads(form_request.text)
+        
+
+        # Find the question IDs for name and netID
+        name_question_id = None
+        netid_question_id = None
+        grad_question_id = None
+        class_question_id = None
+        office_hours_question_id = None
+        review_session_question_id = None
+        
+        for item in form_data.get('items', []):
+            title = item.get('title', '').lower()
+            print(title)
+            if 'name' in title:
+                name_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'netid' in title:
+                netid_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'year' in title:
+                grad_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'course' in title:
+                class_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'office' in title:
+                office_hours_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'review' in title:
+                review_session_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+
+        # Get form responses
+        request = requests.get(url=url, headers=head)
+        response = json.loads(request.text)
+        form_responses = response.get('responses', [])
+        
+        # Process each response
+        for submission in form_responses:
+            submission_info = submission.get('answers', {})
+            try:
+                name = submission_info.get(name_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                netid = submission_info.get(netid_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                grad_date = submission_info.get(grad_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                course = submission_info.get(class_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                office_hours = submission_info.get(office_hours_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                review_session = submission_info.get(review_session_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+
+                add_ta(netid, name, grad_date, course, office_hours, review_session)
+            except KeyError as e:
+                print(f"Error processing submission: {e}")
+                continue
+
+    except Exception as e:
+        raise Exception(f"Error retrieving form responses: {str(e)}")
+    else:
+        print(f"Retrieved and processed {len(form_responses)} responses")
+
+def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: str = None,
+           office_hours : str = None, review_session : str = None):
+    try:
+        semester = "sp25" 
+        member_data = {
+                'netid': netid.lower(),
+                'first_name': name.split()[0],
+                'last_name': name.split()[-1] if len(name.split()) > 1 else '',
+                'graduation_year': grad_date,
+                'course': course,
+                'office_hours': office_hours,
+                'review_sessions': review_session,
+                'ta_semester': semester
+            }
+        
+        response = (
+            supabase.table("members")
+            .upsert(member_data, on_conflict=["netid"])
+            .execute()
+            )
+    
+        row = supabase.table("members").select("role").eq("netid", netid.lower()).single().execute()
+        if row.data:
+            existing_list = row.data["role"] or []  # Handle NULL case
+        else:
+            existing_list = []
+        data = {'role': existing_list + ["ta"]}
+        supabase.table("members").update(data).eq("netid", netid.lower()).execute()
+
+        print(f"Added {name} to ta directory")
+        return response.data
+    
+    except Exception as e:
+        raise Exception(f"Error adding {name} as a TA: {str(e)}")
 
 def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major: str = None, 
                position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None):
