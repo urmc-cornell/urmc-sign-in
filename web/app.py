@@ -92,8 +92,10 @@ def process_form(eboard):
     if 'credentials' not in session:
         return redirect('/login')
     # Get the form id and points value from the request
+    
     form_id = request.form['form_id']
-    points_value = int(request.form['points_value'])
+    if not eboard:
+        points_value = int(request.form['points_value'])
     
     # Retrieve credentials from session
     credentials_info = session.get('credentials')
