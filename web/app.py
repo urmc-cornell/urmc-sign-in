@@ -11,7 +11,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS
 backend_dir = Path(__file__).parent.parent / 'backend'
 sys.path.append(str(backend_dir))
 
-from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses
+from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses, add_event
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -92,6 +92,7 @@ def process_form(form_type):
     if 'credentials' not in session:
         return redirect('/login')
     # Get the form id and points value from the request
+    
     form_id = request.form['form_id']
     if form_type != 'eboard' and form_type != 'ta':
         points_value = int(request.form['points_value'])
@@ -120,6 +121,37 @@ def process_form(form_type):
             retrieve_ta_responses(form_id, credentials)
         else:
             retrieve_event_responses(form_id, points_value, credentials)
+        return "Form responses processed successfully!"
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+    
+@app.route('/add_event', methods=['POST'])
+def process_event():
+    if 'credentials' not in session:
+        return redirect('/login')
+    
+    credentials_info = session.get('credentials')
+    credentials = Credentials(
+        token=credentials_info['token'],
+        refresh_token=credentials_info['refresh_token'],
+        token_uri=credentials_info['token_uri'],
+        client_id=credentials_info['client_id'],
+        client_secret=credentials_info['client_secret'],
+        scopes=credentials_info['scopes']
+    )
+    name = request.form['name']
+    description = request.form['description']
+    flyer_url = request.form['flyer_url']
+    insta = request.form.get('insta', None)
+    month = request.form['month']
+    day = request.form['day']
+    year = request.form['year']
+    try:
+        # If credentials are not provided, raise an error
+        if not credentials:
+            raise ValueError("Credentials are required")
+        
+        add_event(name, description, flyer_url, insta, month, day, year)
         return "Form responses processed successfully!"
     except Exception as e:
         return f"Error: {str(e)}", 500

@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 import pickle
 import os.path
 from slack_service import send_points_notification
+from datetime import datetime
+import pytz
 
 # Load environment variables
 load_dotenv()
@@ -365,7 +367,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                 'graduation_year': grad_date,
                 'major': major,
                 'position': position,
-                'role': ["member"],
+                'role': ["eboard"],
                 'ask_about': interests.split(','),
                 'bio': bio,
                 'linkedin_url': linkedin,
@@ -382,7 +384,8 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
         return response.data
     
     except Exception as e:
-        raise Exception(f"Error adding/updating points for {name}: {str(e)}")
+        pass
+        # raise Exception(f"Error adding/updating points for {name}: {str(e)}")
     
     
 # Get points via the responses object from Google Forms
@@ -443,3 +446,36 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
         raise Exception(f"Error retrieving form responses: {str(e)}")
     else:
         print(f"Retrieved and processed {len(form_responses)} responses")
+
+
+def add_event(name: str = None, description: str = None, flyer_url: str = None, insta=None,
+              month: str = None, day: str = None, year: str = None):
+    try:
+        # Convert date strings to datetime object
+        # Assuming month is full name (e.g., "January"), day is string number ("1"), year is string ("2024")
+        date_string = f"{month} {day} {year}"
+        date_object = datetime.strptime(date_string, "%B %d %Y")
+        
+        # Make it timezone-aware (using UTC)
+        event_date = date_object.replace(tzinfo=pytz.UTC).isoformat()
+        semester = "sp25" 
+
+        event_data = {
+            'name': name,
+            'description': description,
+            'flyer_url': flyer_url,
+            'instagram_url': insta,
+            'date': event_date, 
+            'semester':semester
+        }
+
+        response = (
+            supabase.table("events")
+            .insert(event_data)
+            .execute()
+        )
+
+        print(f"Added event: {name}")
+        return response.data
+    except Exception as e:
+        raise Exception(f"Error adding event {name}: {str(e)}")
