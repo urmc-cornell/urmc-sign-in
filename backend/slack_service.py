@@ -2,12 +2,21 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 import os
 from dotenv import load_dotenv
+import ssl
 
 # Load environment variables
 load_dotenv()
 
-# Initialize Slack client
-slack_client = WebClient(token=os.getenv('SLACK_BOT_TOKEN'))
+# Create a custom SSL context that doesn't verify certificates
+ssl_context = ssl.create_default_context()
+ssl_context.check_hostname = False
+ssl_context.verify_mode = ssl.CERT_NONE
+
+# Initialize Slack client with SSL context
+slack_client = WebClient(
+    token=os.getenv('SLACK_BOT_TOKEN'),
+    ssl=ssl_context  # Add this parameter
+)
 
 def send_points_notification(email: str, points: int, reason: str):
     """
