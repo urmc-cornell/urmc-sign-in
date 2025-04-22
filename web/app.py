@@ -4,6 +4,15 @@ from google.oauth2.credentials import Credentials
 import os
 from pathlib import Path
 import sys
+from datetime import datetime
+from supabase import create_client, Client
+from dotenv import load_dotenv
+load_dotenv() 
+
+supabase: Client = create_client(
+    supabase_url=os.environ.get("SUPABASE_URL"),
+    supabase_key=os.environ.get("SUPABASE_KEY")
+)
 
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS) for local development
 
@@ -130,29 +139,48 @@ def process_event():
     if 'credentials' not in session:
         return redirect('/login')
     
-    credentials_info = session.get('credentials')
-    credentials = Credentials(
-        token=credentials_info['token'],
-        refresh_token=credentials_info['refresh_token'],
-        token_uri=credentials_info['token_uri'],
-        client_id=credentials_info['client_id'],
-        client_secret=credentials_info['client_secret'],
-        scopes=credentials_info['scopes']
-    )
-    name = request.form['name']
-    description = request.form['description']
-    flyer_url = request.form['flyer_url']
-    insta = request.form.get('insta', None)
-    month = request.form['month']
-    day = request.form['day']
-    year = request.form['year']
     try:
-        # If credentials are not provided, raise an error
-        if not credentials:
-            raise ValueError("Credentials are required")
+        # Get uploaded file
+        flyer_file = request.files['flyer_file']
+        if not flyer_file or flyer_file.filename == '':
+            raise ValueError("No valid file uploaded")
+
+        # Generate unique filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_extension = os.path.splitext(flyer_file.filename)[1]
+        unique_filename = f"event-flyers/{timestamp}{file_extension}"
+    
+        # Upload to Supabase Storage
+        upload_response = supabase.storage.from_('event-flyers').upload(
+            flyer_file.filename,
+            flyer_file.read()
+        )
         
-        add_event(name, description, flyer_url, insta, month, day, year)
-        return "Form responses processed successfully!"
+        # Get public URL
+        flyer_url = supabase.storage.from_('event-flyers').get_public_url(flyer_file.filename)
+
+        # Process other form data
+        name = request.form['name']
+        description = request.form['description']
+        insta = request.form.get('insta', None)
+        month = request.form['month']
+        day = request.form['day']
+        year = request.form['year']
+        
+
+        # Insert into events table
+        add_event(
+            name=name,
+            description=description,
+            flyer_url=flyer_url,
+            insta=insta,
+            month=month,
+            day=day,
+            year=year
+        )
+        
+        return "Event added successfully with image upload!"
+    
     except Exception as e:
         return f"Error: {str(e)}", 500
 
