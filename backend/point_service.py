@@ -147,6 +147,10 @@ def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None)
             try:
                 name = submission_info[name_question_id]['textAnswers']['answers'][0]['value']
                 netid = submission_info[netid_question_id]['textAnswers']['answers'][0]['value']
+                # Clean the netid
+                netid = netid.strip()
+                if '@cornell.edu' in netid:
+                    netid = netid.split('@')[0]
                 add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason)
                 processed_count += 1
             except KeyError as e:
@@ -233,6 +237,12 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
             try:
                 name = submission_info.get(name_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 netid = submission_info.get(netid_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                # Clean the netid if it exists
+                if netid:
+                    netid = netid.strip()
+                    if '@cornell.edu' in netid:
+                        netid = netid.split('@')[0]
+                
                 grad_date = submission_info.get(grad_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 major = submission_info.get(major_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 position = submission_info.get(position_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
@@ -304,6 +314,12 @@ def retrieve_ta_responses(form_id: str, credentials=None):
             try:
                 name = submission_info.get(name_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 netid = submission_info.get(netid_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                # Clean the netid if it exists
+                if netid:
+                    netid = netid.strip()
+                    if '@cornell.edu' in netid:
+                        netid = netid.split('@')[0]
+
                 grad_date = submission_info.get(grad_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 course = submission_info.get(class_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 office_hours = submission_info.get(office_hours_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
@@ -434,6 +450,10 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
             try:
                 name = submission_info[name_question_id]['textAnswers']['answers'][0]['value']
                 netid = submission_info[netid_question_id]['textAnswers']['answers'][0]['value']
+                # Clean the netid
+                netid = netid.strip()
+                if '@cornell.edu' in netid:
+                    netid = netid.split('@')[0]
                 add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason)
             except KeyError as e:
                 print(f"Error processing submission: {e}")
@@ -441,5 +461,187 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
 
     except Exception as e:
         raise Exception(f"Error retrieving form responses: {str(e)}")
+    else:
+        print(f"Retrieved and processed {len(form_responses)} responses")
+
+def update_member_info(form_id: str, credentials=None):
+    """
+    Update member information (year and major) from a Google Form.
+    This function processes form responses and updates the database with year and major information
+    if it doesn't already exist for that member.
+    """
+    try:
+        # If credentials provided, use them. Otherwise use existing token logic
+        if not credentials:
+            raise ValueError("Credentials are required")
+        
+        try:
+            token = credentials.token
+        except Exception as cred_err:
+            raise Exception(f"Error accessing credentials token: {str(cred_err)}")
+
+        # Get form responses using Google Forms API
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+        head = {'Authorization': f'Bearer {token}'}
+        
+        # First, get the form structure to find question IDs
+        form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
+        try:
+            form_request = requests.get(url=form_url, headers=head)
+            if form_request.status_code != 200:
+                raise Exception(f"Form API request failed with status {form_request.status_code}: {form_request.text}")
+            form_data = json.loads(form_request.text)
+        except requests.RequestException as req_err:
+            raise Exception(f"Error requesting form data: {str(req_err)}")
+        except json.JSONDecodeError as json_err:
+            raise Exception(f"Error parsing form data JSON: {str(json_err)}")
+        
+        # Find the question IDs for name, netID, year, and major
+        name_question_id = None
+        netid_question_id = None
+        year_question_id = None
+        major_question_id = None
+        
+        for item in form_data.get('items', []):
+            title = item.get('title', '').lower()
+            if 'name' in title:
+                name_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'netid' in title:
+                netid_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'year' in title:
+                year_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'major' in title:
+                major_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+        
+        if not name_question_id or not netid_question_id:
+            raise Exception("Could not find name or netID questions in form. Form structure may be incorrect.")
+        
+        if not year_question_id and not major_question_id:
+            raise Exception("Could not find year or major questions in form. Form structure may be incorrect.")
+
+        # Get form responses
+        try:
+            request = requests.get(url=url, headers=head)
+            if request.status_code != 200:
+                raise Exception(f"Form responses API request failed with status {request.status_code}: {request.text}")
+            response = json.loads(request.text)
+        except requests.RequestException as req_err:
+            raise Exception(f"Error requesting form responses: {str(req_err)}")
+        except json.JSONDecodeError as json_err:
+            raise Exception(f"Error parsing form responses JSON: {str(json_err)}")
+            
+        form_responses = response.get('responses', [])
+        
+        if not form_responses:
+            print("Warning: No form responses found")
+        
+        # Year mapping dictionary
+        year_to_graduation = {
+            "freshman": 2028,
+            "sophomore": 2027,
+            "junior": 2026,
+            "senior": 2025
+        }
+        
+        # Major mapping dictionary
+        major_to_full_name = {
+            "cs": "Computer Science",
+            "ece": "Electrical and Computer Engineering",
+            "is/isst": "Information Science",
+            "orie": "Operations Research and Information Engineering"
+        }
+        
+        # Process each response
+        processed_count = 0
+        error_count = 0
+        for submission in form_responses:
+            submission_info = submission.get('answers', {})
+            try:
+                name = submission_info.get(name_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', '')
+                netid = submission_info.get(netid_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', '')
+                
+                # Clean the netid
+                if netid:
+                    netid = netid.strip()
+                    if '@cornell.edu' in netid:
+                        netid = netid.split('@')[0]
+                else:
+                    continue  # Skip if no netid
+                
+                # Get year and major if the questions exist
+                year_raw = None
+                major_raw = None
+                
+                if year_question_id:
+                    year_raw = submission_info.get(year_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', '')
+                
+                if major_question_id:
+                    major_raw = submission_info.get(major_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', '')
+                
+                # Map year to graduation year
+                graduation_year = None
+                if year_raw:
+                    year_raw = year_raw.lower()
+                    graduation_year = year_to_graduation.get(year_raw)
+                
+                # Map major to full name
+                full_major = None
+                if major_raw:
+                    major_raw = major_raw.lower()
+                    full_major = major_to_full_name.get(major_raw, major_raw)
+                
+                # Check if member exists and if we need to update
+                response = supabase.table('members').select('id, graduation_year, major').eq('netid', netid.lower()).execute()
+                
+                if response.data:
+                    member_id = response.data[0]['id']
+                    current_grad_year = response.data[0].get('graduation_year')
+                    current_major = response.data[0].get('major')
+                    
+                    update_data = {}
+                    
+                    if graduation_year and not current_grad_year:
+                        update_data['graduation_year'] = graduation_year
+                    
+                    if full_major and not current_major:
+                        update_data['major'] = full_major
+                    
+                    if update_data:
+                        supabase.table('members').update(update_data).eq('id', member_id).execute()
+                        print(f"Updated info for {name} ({netid})")
+                else:
+                    # Member doesn't exist, create new
+                    member_data = {
+                        'netid': netid.lower(),
+                        'first_name': name.split()[0] if name else '',
+                        'last_name': name.split()[-1] if name and len(name.split()) > 1 else '',
+                        'email': f"{netid.lower()}@cornell.edu"
+                    }
+                    
+                    if graduation_year:
+                        member_data['graduation_year'] = graduation_year
+                    
+                    if full_major:
+                        member_data['major'] = full_major
+                    
+                    supabase.table('members').insert(member_data).execute()
+                    print(f"Created new member {name} ({netid}) with provided info")
+                
+                processed_count += 1
+                
+            except KeyError as e:
+                print(f"Error processing submission: Missing field {e}")
+                error_count += 1
+                continue
+            except Exception as e:
+                print(f"Error processing submission for {submission_info.get('name', 'unknown')}: {str(e)}")
+                error_count += 1
+                continue
+
+        print(f"Processed {processed_count} responses successfully, {error_count} errors")
+
+    except Exception as e:
+        print(f"Detailed error in update_member_info: {str(e)}")
+        raise Exception(f"Error updating member info: {str(e)}")
     else:
         print(f"Retrieved and processed {len(form_responses)} responses")

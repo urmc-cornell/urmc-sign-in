@@ -11,7 +11,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS
 backend_dir = Path(__file__).parent.parent / 'backend'
 sys.path.append(str(backend_dir))
 
-from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses
+from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses, update_member_info
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -93,7 +93,7 @@ def process_form(form_type):
         return redirect('/login')
     # Get the form id and points value from the request
     form_id = request.form['form_id']
-    if form_type != 'eboard' and form_type != 'ta':
+    if form_type != 'eboard' and form_type != 'ta' and form_type != 'member_info':
         points_value = int(request.form['points_value'])
     else:
         points_value = 0
@@ -118,6 +118,8 @@ def process_form(form_type):
             retrieve_eboard_responses(form_id, credentials)
         elif form_type == 'ta':
             retrieve_ta_responses(form_id, credentials)
+        elif form_type == 'member_info':
+            update_member_info(form_id, credentials)
         else:
             retrieve_event_responses(form_id, points_value, credentials)
         return "Form responses processed successfully!"
