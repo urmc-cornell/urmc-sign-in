@@ -645,3 +645,134 @@ def update_member_info(form_id: str, credentials=None):
         raise Exception(f"Error updating member info: {str(e)}")
     else:
         print(f"Retrieved and processed {len(form_responses)} responses")
+
+def award_points_to_existing_members(form_id: str, points_to_add: int, reason: str, credentials=None):
+    """
+    Award points to members who already exist in the database based on Google Form responses.
+    Only adds points if the NetID already exists in the database.
+    
+    Args:
+        form_id (str): The Google Form ID
+        points_to_add (int): Number of points to award
+        reason (str): Reason for points
+        credentials: Google OAuth credentials
+    """
+    try:
+        # If credentials provided, use them. Otherwise use existing token logic
+        if not credentials:
+            raise ValueError("Credentials are required")
+        
+        try:
+            token = credentials.token
+        except Exception as cred_err:
+            raise Exception(f"Error accessing credentials token: {str(cred_err)}")
+
+        # Get form responses using Google Forms API
+        url = f"https://forms.googleapis.com/v1/forms/{form_id}/responses"
+        head = {'Authorization': f'Bearer {token}'}
+        
+        # First, get the form structure to find question IDs
+        form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
+        try:
+            form_request = requests.get(url=form_url, headers=head)
+            if form_request.status_code != 200:
+                raise Exception(f"Form API request failed with status {form_request.status_code}: {form_request.text}")
+            form_data = json.loads(form_request.text)
+        except requests.RequestException as req_err:
+            raise Exception(f"Error requesting form data: {str(req_err)}")
+        except json.JSONDecodeError as json_err:
+            raise Exception(f"Error parsing form data JSON: {str(json_err)}")
+        
+        # Find the question IDs for netID
+        netid_question_id = None
+        name_question_id = None  # Optional, for better logs
+        
+        for item in form_data.get('items', []):
+            title = item.get('title', '').lower()
+            if 'netid' in title:
+                netid_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+            elif 'name' in title:
+                name_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
+        
+        if not netid_question_id:
+            raise Exception("Could not find netID question in form. Form structure may be incorrect.")
+
+        # Get form responses
+        try:
+            request = requests.get(url=url, headers=head)
+            if request.status_code != 200:
+                raise Exception(f"Form responses API request failed with status {request.status_code}: {request.text}")
+            response = json.loads(request.text)
+        except requests.RequestException as req_err:
+            raise Exception(f"Error requesting form responses: {str(req_err)}")
+        except json.JSONDecodeError as json_err:
+            raise Exception(f"Error parsing form responses JSON: {str(json_err)}")
+            
+        form_responses = response.get('responses', [])
+        
+        if not form_responses:
+            raise Exception("No form responses found")
+        
+        # Process each response
+        processed_count = 0
+        skipped_count = 0
+        
+        for submission in form_responses:
+            submission_info = submission.get('answers', {})
+            try:
+                # Get netID from the form response
+                netid = submission_info[netid_question_id]['textAnswers']['answers'][0]['value']
+                
+                # Clean the netid
+                netid = netid.strip()
+                if '@cornell.edu' in netid:
+                    netid = netid.split('@')[0]
+                
+                # Get name if available (for logging purposes)
+                name = None
+                if name_question_id and name_question_id in submission_info:
+                    name = submission_info[name_question_id]['textAnswers']['answers'][0]['value']
+                
+                # Check if member exists
+                response = supabase.table('members').select('id, email').eq('netid', netid.lower()).execute()
+                
+                if response.data:
+                    member_id = response.data[0]['id']
+                    # Default to Cornell email if email field is None or empty
+                    member_email = response.data[0].get('email') or f"{netid.lower()}@cornell.edu"
+                    
+                    # Add points
+                    points_data = {
+                        'member_id': member_id,
+                        'points': int(points_to_add),
+                        'semester': 'sp25',
+                        'reason': reason
+                    }
+                    
+                    supabase.table('points_tracking').insert(points_data).execute()
+                    
+                    # Send Slack notification
+                    if member_email:
+                        try:
+                            send_points_notification(member_email, points_to_add, reason)
+                        except Exception as slack_err:
+                            print(f"Warning: Slack notification failed for {netid}: {str(slack_err)}")
+                    
+                    processed_count += 1
+                    print(f"Added {points_to_add} points for {name or netid}")
+                else:
+                    skipped_count += 1
+                    print(f"Skipped {name or netid} - not in database")
+                
+            except KeyError as e:
+                print(f"Error processing submission: Missing field {e}")
+                continue
+            except Exception as e:
+                print(f"Error processing submission: {str(e)}")
+                continue
+
+        return f"Added points to {processed_count} members. Skipped {skipped_count} members not in database."
+
+    except Exception as e:
+        print(f"Detailed error in award_points_to_existing_members: {str(e)}")
+        raise Exception(f"Error awarding points: {str(e)}")

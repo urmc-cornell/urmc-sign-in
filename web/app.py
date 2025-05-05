@@ -11,7 +11,7 @@ os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS
 backend_dir = Path(__file__).parent.parent / 'backend'
 sys.path.append(str(backend_dir))
 
-from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses, update_member_info
+from point_service import add_or_update_points, retrieve_event_responses, retrieve_eboard_responses, retrieve_ta_responses, update_member_info, award_points_to_existing_members
 
 app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY')
@@ -123,6 +123,35 @@ def process_form(form_type):
         else:
             retrieve_event_responses(form_id, points_value, credentials)
         return "Form responses processed successfully!"
+    except Exception as e:
+        return f"Error: {str(e)}", 500
+
+@app.route('/award_points_to_existing', methods=['POST'])
+def award_points_to_existing():
+    # If user is not logged in, redirect to login page
+    if 'credentials' not in session:
+        return redirect('/login')
+    
+    # Get form data
+    form_id = request.form['form_id']
+    points = int(request.form['points_value'])
+    reason = request.form['reason']
+    
+    # Retrieve credentials from session
+    credentials_info = session.get('credentials')
+    credentials = Credentials(
+        token=credentials_info['token'],
+        refresh_token=credentials_info['refresh_token'],
+        token_uri=credentials_info['token_uri'],
+        client_id=credentials_info['client_id'],
+        client_secret=credentials_info['client_secret'],
+        scopes=credentials_info['scopes']
+    )
+    
+    try:
+        # Award points to existing members only
+        result = award_points_to_existing_members(form_id, points, reason, credentials)
+        return result
     except Exception as e:
         return f"Error: {str(e)}", 500
 
