@@ -6,7 +6,8 @@ import os.path
 # If modifying these scopes, delete the file token.pickle.
 SCOPES = [
     'https://www.googleapis.com/auth/forms.responses.readonly',
-    'https://www.googleapis.com/auth/forms.body.readonly'
+    'https://www.googleapis.com/auth/forms.body.readonly',
+    'https://www.googleapis.com/auth/drive.readonly'
 ]
 
 def main():

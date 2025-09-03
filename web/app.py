@@ -18,7 +18,8 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY')
 
 SCOPES = [
     'https://www.googleapis.com/auth/forms.responses.readonly',
-    'https://www.googleapis.com/auth/forms.body.readonly'
+    'https://www.googleapis.com/auth/forms.body.readonly',
+    'https://www.googleapis.com/auth/drive.readonly'
 ]
 
 @app.route('/')

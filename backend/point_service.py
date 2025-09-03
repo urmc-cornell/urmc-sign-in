@@ -8,6 +8,8 @@ import os.path
 from slack_service import send_points_notification
 from datetime import datetime
 import pytz
+import io
+import mimetypes
 
 # Load environment variables
 load_dotenv()
@@ -17,6 +19,123 @@ supabase = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_SERVICE_KEY")
 )
+
+def download_and_upload_headshot(file_id, netid, image_type, credentials, name_for_logging=""):
+    """
+    Downloads a file from Google Drive and uploads it to Supabase storage
+    
+    Args:
+        file_id: Google Drive file ID
+        netid: User's netid for naming
+        image_type: 'Primary' or 'Secondary'
+        credentials: Google API credentials
+        name_for_logging: Name for logging purposes
+    
+    Returns:
+        URL of uploaded file in Supabase storage or None if failed
+    """
+    try:
+        token = credentials.token
+        
+        # First get file metadata to determine file extension
+        metadata_url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
+        headers = {'Authorization': f'Bearer {token}'}
+        
+        metadata_response = requests.get(metadata_url, headers=headers)
+        if metadata_response.status_code != 200:
+            print(f"Failed to get file metadata for {name_for_logging}: {metadata_response.text}")
+            return None
+            
+        metadata = metadata_response.json()
+        file_name = metadata.get('name', 'unknown')
+        mime_type = metadata.get('mimeType', 'application/octet-stream')
+        
+        # Determine file extension
+        extension = mimetypes.guess_extension(mime_type) or '.jpg'
+        if extension == '.jpe':  # Fix common issue with jpeg extension
+            extension = '.jpeg'
+        
+        # Download the file content
+        download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+        download_response = requests.get(download_url, headers=headers)
+        
+        if download_response.status_code != 200:
+            print(f"Failed to download file for {name_for_logging}: {download_response.text}")
+            return None
+        
+        # Create file name for Supabase storage
+        supabase_filename = f"{netid.lower()}{image_type}{extension}"
+        
+        # Upload to Supabase storage
+        file_bytes = download_response.content
+        
+        # Try to upload first, if it fails due to duplicate, delete and re-upload
+        try:
+            upload_response = supabase.storage.from_("headshots").upload(
+                f"eboard/{supabase_filename}",
+                file_bytes,
+                {"content-type": mime_type}
+            )
+        except Exception as e:
+            # If upload fails due to duplicate, delete existing file and re-upload
+            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                try:
+                    # Delete the existing file
+                    delete_response = supabase.storage.from_("headshots").remove([f"eboard/{supabase_filename}"])
+                    # Re-upload the new file
+                    upload_response = supabase.storage.from_("headshots").upload(
+                        f"eboard/{supabase_filename}",
+                        file_bytes,
+                        {"content-type": mime_type}
+                    )
+                except Exception as replace_e:
+                    print(f"Failed to replace headshot for {name_for_logging}: {str(replace_e)}")
+                    return None
+            else:
+                print(f"Failed to upload headshot for {name_for_logging}: {str(e)}")
+                return None
+        
+        # Construct the public URL
+        public_url = f"{os.getenv('SUPABASE_URL')}/storage/v1/object/public/headshots/eboard/{supabase_filename}"
+        
+        print(f"Successfully uploaded {image_type} headshot for {name_for_logging}")
+        return public_url
+        
+    except Exception as e:
+        print(f"Error processing headshot for {name_for_logging}: {str(e)}")
+        return None
+
+def process_headshot_upload(question_id, submission_info, netid, headshot_type, credentials, name):
+    """
+    Helper function to process headshot uploads from Google Form submissions
+    
+    Args:
+        question_id: The question ID for the headshot field
+        submission_info: The submission data from Google Forms
+        netid: User's netid
+        headshot_type: 'Primary' or 'Secondary'
+        credentials: Google API credentials
+        name: User's name for logging
+    
+    Returns:
+        URL of uploaded headshot or None if no file or upload failed
+    """
+    if not question_id or question_id not in submission_info:
+        return None
+        
+    headshot_data = submission_info.get(question_id, {})
+    file_upload_answers = headshot_data.get('fileUploadAnswers', {})
+    
+    if file_upload_answers and 'answers' in file_upload_answers:
+        files = file_upload_answers['answers']
+        if files and len(files) > 0:
+            file_id = files[0].get('fileId')
+            if file_id:
+                return download_and_upload_headshot(
+                    file_id, netid, headshot_type, credentials, name
+                )
+    
+    return None
 
 def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str = None):
     try:
@@ -166,7 +285,7 @@ def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None)
         print(f"Detailed error in retrieve_event_responses: {str(e)}")
         raise Exception(f"Error retrieving form responses: {str(e)}")
     else:
-        print(f"Retrieved and processed {len(form_responses)} responses")
+        print(f"Retrieved and processed {len(form_responses)} event responses")
 
 
 def retrieve_eboard_responses(form_id: str, credentials=None):
@@ -187,7 +306,7 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         form_data = json.loads(form_request.text)
         
 
-        # Find the question IDs for name and netID
+        # Find the question IDs for all form fields
         name_question_id = None
         netid_question_id = None
         grad_question_id = None
@@ -197,6 +316,8 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         major_question_id = None
         linkedin_question_id = None
         insta_question_id = None
+        headshot_1_question_id = None  # Profile page headshot
+        headshot_2_question_id = None  # Secondary picture
         
         for item in form_data.get('items', []):
             title = item.get('title', '').lower()
@@ -228,6 +349,7 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         request = requests.get(url=url, headers=head)
         response = json.loads(request.text)
         form_responses = response.get('responses', [])
+        print(f"Form responses count: {len(form_responses)}")
         
         # Process each response
         for submission in form_responses:
@@ -243,15 +365,26 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
                 insta = submission_info.get(insta_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 linkedin = submission_info.get(linkedin_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
 
-                add_eboard(netid, name, grad_date, major, position, interests, bio, insta, linkedin)
+                # Process headshot file uploads
+                headshot_url = process_headshot_upload(
+                    headshot_1_question_id, submission_info, netid, 'Primary', credentials, name
+                )
+                secondary_headshot_url = process_headshot_upload(
+                    headshot_2_question_id, submission_info, netid, 'Secondary', credentials, name
+                )
+
+                add_eboard(netid, name, grad_date, major, position, interests, bio, insta, linkedin, headshot_url, secondary_headshot_url)
             except KeyError as e:
                 print(f"Error processing submission: {e}")
+                continue
+            except Exception as e:
+                print(f"Error processing submission for {name or 'unknown'}: {str(e)}")
                 continue
 
     except Exception as e:
         raise Exception(f"Error retrieving form responses: {str(e)}")
     else:
-        print(f"Retrieved and processed {len(form_responses)} responses")
+        print(f"Retrieved and processed {len(form_responses)} eboard responses")
 
 def retrieve_ta_responses(form_id: str, credentials=None):
     try:
@@ -319,7 +452,7 @@ def retrieve_ta_responses(form_id: str, credentials=None):
     except Exception as e:
         raise Exception(f"Error retrieving form responses: {str(e)}")
     else:
-        print(f"Retrieved and processed {len(form_responses)} responses")
+        print(f"Retrieved and processed {len(form_responses)} ta responses")
 
 def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: str = None,
            office_hours : str = None, review_session : str = None):
@@ -357,9 +490,10 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
         raise Exception(f"Error adding {name} as a TA: {str(e)}")
 
 def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major: str = None, 
-               position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None):
+               position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None,
+               headshot_url=None, secondary_headshot_url=None):
     try:
-        semester = "sp25" 
+        semester = "fa25" 
         member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0],
@@ -368,11 +502,17 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                 'major': major,
                 'position': position,
                 'role': ["eboard"],
-                'ask_about': interests.split(','),
+                'ask_about': interests.split(',') if interests else [],
                 'bio': bio,
                 'linkedin_url': linkedin,
                 'instagram_url': insta
             }
+        
+        # Add headshot URLs if provided
+        if headshot_url:
+            member_data['headshot_url'] = headshot_url
+        if secondary_headshot_url:
+            member_data['secondary_headshot_url'] = secondary_headshot_url
         
         response = (
             supabase.table("members")
@@ -445,7 +585,7 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
     except Exception as e:
         raise Exception(f"Error retrieving form responses: {str(e)}")
     else:
-        print(f"Retrieved and processed {len(form_responses)} responses")
+        print(f"Retrieved and processed {len(form_responses)} member responses")
 
 
 def add_event(name: str = None, description: str = None, flyer_url: str = None, insta=None,
