@@ -322,27 +322,27 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         for item in form_data.get('items', []):
             title = item.get('title', '').lower()
             print(title)
-            if 'name' in title:
+            if 'what is your full name?' in title:
                 name_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'netid' in title:
+            elif 'what is your netid?' in title:
                 netid_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'graduation' in title:
+            elif 'graduation year' in title:
                 grad_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'position' in title:
+            elif 'what is your position on e-board?' in title:
                 position_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'profile page' in title:
                 headshot_1_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'picture' in title:
+            elif 'second picture' in title:
                 headshot_2_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'interested in' in title:
+            elif 'give examples of things you are interested in' in title:
                 interests_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'major' in title:
+            elif 'majors and year' in title:
                 major_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'instagram' in title:
                 insta_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'linkedin' in title:
                 linkedin_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'short bio' in title:
+            elif 'provide a short bio about yourself' in title:
                 bio_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
 
         # Get form responses
