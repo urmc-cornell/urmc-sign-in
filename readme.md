@@ -23,6 +23,10 @@
 4. **Set up Google API credentials**:
    - Place your `client_secrets.json` file in the `web/` directory
    - This file should contain your Google OAuth 2.0 credentials
+  
+5. **Configure Envrioment Variables**:
+   - Place the `.env` file in the `backend/` directory
+   - This file should contain supabase and slack variables
 
 ## Running the Application
 

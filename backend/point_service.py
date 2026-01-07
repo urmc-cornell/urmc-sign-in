@@ -403,7 +403,7 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
                 headshot_2_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'interested in' in title or 'ask about' in title:
                 interests_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'major' in title:
+            elif 'majors and year' in title:
                 major_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'instagram' in title:
                 insta_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
@@ -548,16 +548,23 @@ def retrieve_ta_responses(form_id: str, credentials=None):
     else:
         print(f"Retrieved and processed {len(form_responses)} ta responses")
 
+def is_integer_string(s):
+        try:
+            int(s)
+            return True
+        except ValueError:
+            return False
+
 def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: str = None,
-           office_hours : str = None, review_session : str = None):
+           office_hours : str = None, review_session : str = None): 
     try:
-        semester = "sp25" 
+        semester = "fa25" 
         member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0],
                 'last_name': name.split()[-1] if len(name.split()) > 1 else '',
-                'graduation_year': grad_date,
-                'course': course,
+                'graduation_year': grad_date if is_integer_string(grad_date) else None,
+                # 'course': course,
                 'office_hours': office_hours,
                 'review_sessions': review_session,
                 'ta_semester': semester
@@ -574,7 +581,10 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
             existing_list = row.data["role"] or []  # Handle NULL case
         else:
             existing_list = []
-        data = {'role': existing_list + ["ta"]}
+        if "ta" in existing_list:
+            data = {'role': existing_list}
+        else:
+            data = {'role': existing_list + ["ta"]}
         supabase.table("members").update(data).eq("netid", netid.lower()).execute()
 
         print(f"Added {name} to ta directory")
@@ -587,7 +597,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None,
                headshot_url=None, secondary_headshot_url=None):
     try:
-        semester = "fa25"
+        semester = "sp26"
         
         # Handle name parsing safely
         first_name = ''
@@ -597,13 +607,25 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
             first_name = name_parts[0] if name_parts else ''
             last_name = name_parts[-1] if len(name_parts) > 1 else ''
         
+
+        transformed_roles = {
+            "Prof Dev": "Professional Development",
+            "Professional Development Chair" : "Professional Development",
+            "Professional Development Co-Chair" : "Professional Development",
+            "Web Dev" : "Web Development",
+            "Web Development Chair": "Web Development",
+            "Web Development Co-Chair": "Web Development",
+            "Fresh" : "Freshman Representative",
+            "Freshman Rep" : "Freshman Representative"
+        }
+
         member_data = {
                 'netid': netid.lower() if netid else '',
                 'first_name': first_name,
                 'last_name': last_name,
                 'graduation_year': grad_date,
                 'major': major,
-                'position': position,
+                'position': transformed_roles.get(position, position),
                 'role': ["eboard"],
                 'ask_about': interests.split(',') if interests else [],
                 'bio': bio,
