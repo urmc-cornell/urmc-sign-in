@@ -10,6 +10,7 @@ from datetime import datetime
 import pytz
 import io
 import mimetypes
+from PIL import Image
 
 # Load environment variables
 load_dotenv()
@@ -19,6 +20,64 @@ supabase = create_client(
     os.getenv("SUPABASE_URL"),
     os.getenv("SUPABASE_SERVICE_KEY")
 )
+
+def crop_image_to_square(image_bytes):
+    """
+    Crops an image to a square, focusing on the upper-middle portion for face-centered cropping.
+    If the image is already square, returns it unchanged.
+    
+    Args:
+        image_bytes: Raw image bytes
+    
+    Returns:
+        Cropped image bytes as JPEG
+    """
+    try:
+        # Load image from bytes
+        img = Image.open(io.BytesIO(image_bytes))
+        
+        # Convert to RGB if necessary (handles RGBA, grayscale, etc.)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        width, height = img.size
+        
+        # If already square, return unchanged
+        if width == height:
+            output = io.BytesIO()
+            img.save(output, format='JPEG', quality=95)
+            return output.getvalue()
+        
+        # Determine square size (use smaller dimension)
+        square_size = min(width, height)
+        
+        # Calculate crop coordinates
+        if width > height:
+            # Landscape: center horizontally, bias towards top for faces
+            left = (width - square_size) // 2
+            top = 0  # Start from top
+            right = left + square_size
+            bottom = square_size
+        else:
+            # Portrait: center horizontally, focus on upper portion (where faces typically are)
+            left = (width - square_size) // 2
+            top = int((height - square_size) * 0.15)  # Start 15% from top to capture face
+            right = left + square_size
+            bottom = top + square_size
+        
+        # Crop the image
+        cropped_img = img.crop((left, top, right, bottom))
+        
+        # Convert back to bytes
+        output = io.BytesIO()
+        cropped_img.save(output, format='JPEG', quality=95)
+        
+        return output.getvalue()
+        
+    except Exception as e:
+        print(f"Error cropping image: {str(e)}")
+        # If cropping fails, return original bytes
+        return image_bytes
 
 def download_and_upload_headshot(file_id, netid, image_type, credentials, name_for_logging=""):
     """
@@ -66,8 +125,9 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
         # Create file name for Supabase storage
         supabase_filename = f"{netid.lower()}{image_type}{extension}"
         
-        # Upload to Supabase storage
+        # Process image: crop to square if needed
         file_bytes = download_response.content
+        file_bytes = crop_image_to_square(file_bytes)
         
         # Try to upload first, if it fails due to duplicate, delete and re-upload
         try:
@@ -290,6 +350,12 @@ def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None)
 
 def retrieve_eboard_responses(form_id: str, credentials=None):
     try:
+        # ========== TEST MODE ==========
+        # Add netids here to ONLY update these specific people
+        # Leave empty [] to process ALL responses (normal mode)
+        TEST_NETIDS = []  # Example: ['ta375', 'ye38']
+        # ===============================
+        
         # If credentials provided, use them. Otherwise use existing token logic
         if not credentials:
             raise ValueError("Credentials are required")
@@ -322,19 +388,20 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         for item in form_data.get('items', []):
             title = item.get('title', '').lower()
             print(title)
-            if 'what is your full name?' in title:
+            # More specific matching to avoid conflicts (order matters - check specific before general)
+            if 'full name' in title:
                 name_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'what is your netid?' in title:
+            elif 'netid' in title or 'net id' in title:
                 netid_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'graduation year' in title:
+            elif 'graduation' in title or 'grad' in title:
                 grad_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'what is your position on e-board?' in title:
+            elif 'position' in title or 'role' in title or 'title' in title:
                 position_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'profile page' in title:
                 headshot_1_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'second picture' in title:
+            elif 'second' in title and 'picture' in title:
                 headshot_2_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'give examples of things you are interested in' in title:
+            elif 'interested in' in title or 'ask about' in title:
                 interests_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'majors and year' in title:
                 major_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
@@ -342,7 +409,7 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
                 insta_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'linkedin' in title:
                 linkedin_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'provide a short bio about yourself' in title:
+            elif 'short bio' in title or 'bio' in title:
                 bio_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
 
         # Get form responses
@@ -350,6 +417,9 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         response = json.loads(request.text)
         form_responses = response.get('responses', [])
         print(f"Form responses count: {len(form_responses)}")
+        
+        if TEST_NETIDS:
+            print(f"🧪 TEST MODE: Only processing netids: {TEST_NETIDS}")
         
         # Process each response
         for submission in form_responses:
@@ -364,6 +434,30 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
                 bio = submission_info.get(bio_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 insta = submission_info.get(insta_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 linkedin = submission_info.get(linkedin_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
+                
+                # Clean up all text fields: remove trailing/leading whitespace
+                name = name.strip() if name else None
+                netid = netid.strip() if netid else None
+                grad_date = grad_date.strip() if grad_date else None
+                major = major.strip() if major else None
+                position = position.strip() if position else None
+                bio = bio.strip() if bio else None
+                insta = insta.strip() if insta else None
+                linkedin = linkedin.strip() if linkedin else None
+                
+                # Skip if TEST_NETIDS is set and this netid is not in the list
+                if TEST_NETIDS and netid and netid.lower() not in [n.lower() for n in TEST_NETIDS]:
+                    print(f"⏭️  Skipping {netid} (not in test list)")
+                    continue
+                
+                # Clean up interests field: remove trailing commas, extra spaces, empty items
+                if interests:
+                    # Strip leading/trailing whitespace and commas
+                    interests = interests.strip().strip(',').strip()
+                    # Split by comma, strip each item, and filter out empty items
+                    interests_list = [item.strip() for item in interests.split(',') if item.strip()]
+                    # Rejoin with comma-space for consistency
+                    interests = ', '.join(interests_list) if interests_list else None
 
                 # Process headshot file uploads
                 headshot_url = process_headshot_upload(
@@ -503,7 +597,16 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None,
                headshot_url=None, secondary_headshot_url=None):
     try:
-        semester = "fa25" 
+        semester = "sp26"
+        
+        # Handle name parsing safely
+        first_name = ''
+        last_name = ''
+        if name:
+            name_parts = name.split()
+            first_name = name_parts[0] if name_parts else ''
+            last_name = name_parts[-1] if len(name_parts) > 1 else ''
+        
 
         transformed_roles = {
             "Prof Dev": "Professional Development",
@@ -517,9 +620,9 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
         }
 
         member_data = {
-                'netid': netid.lower(),
-                'first_name': name.split()[0],
-                'last_name': name.split()[-1] if len(name.split()) > 1 else '',
+                'netid': netid.lower() if netid else '',
+                'first_name': first_name,
+                'last_name': last_name,
                 'graduation_year': grad_date,
                 'major': major,
                 'position': transformed_roles.get(position, position),
