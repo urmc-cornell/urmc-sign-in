@@ -593,6 +593,137 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
     except Exception as e:
         raise Exception(f"Error adding {name} as a TA: {str(e)}")
 
+def normalize_position(position: str) -> str:
+    """
+    Normalize and standardize position/role names.
+    
+    - Removes "Chair" and "Co-Chair" suffixes
+    - Standardizes abbreviations to full role names
+    - First tries exact match, then falls back to substring matching
+    - Handles case-insensitive matching
+    
+    Args:
+        position: Raw position string from form
+        
+    Returns:
+        Standardized position name
+    """
+    if not position:
+        return position
+    
+    # Strip whitespace
+    position = position.strip()
+    
+    # Remove "Chair" or "Co-Chair" from the end (case-insensitive)
+    if position.lower().endswith(" chair"):
+        position = position[:-6].strip()
+    elif position.lower().endswith(" co-chair"):
+        position = position[:-9].strip()
+    
+    # Role mapping dictionary - maps common abbreviations/variations to standardized names
+    role_mapping = {
+        # President variations (check first to avoid conflicts)
+        "president": "President",
+        "co-president": "Co-President",
+        "pres": "President",
+        
+        # Professional Development variations
+        "prof dev": "Professional Development",
+        "prof": "Professional Development",
+        "professional dev": "Professional Development",
+        "profdev": "Professional Development",
+        
+        # Design variations
+        "des": "Design",
+        
+        # Web Development variations
+        "web dev": "Web Development",
+        "webdev": "Web Development",
+        "web": "Web Development",
+        
+        # Academic variations
+        "acad": "Academic",
+        
+        # Public Relations variations
+        "pr": "Public Relations",
+        "public rel": "Public Relations",
+        "pubrel": "Public Relations",
+        
+        # Mentorship variations
+        "mentor": "Mentorship",
+        
+        # Events variations
+        "event": "Events",
+        
+        # Social variations
+        "soc": "Social",
+        
+        # Outreach variations
+        "out": "Outreach",
+        
+        # Freshman Representative variations
+        "fresh": "Freshman Representative",
+        "freshman rep": "Freshman Representative",
+        "frosh": "Freshman Representative",
+        
+        # Exact matches (for completeness)
+        "professional development": "Professional Development",
+        "design": "Design",
+        "web development": "Web Development",
+        "academic": "Academic",
+        "alumni": "Alumni",
+        "corporate": "Corporate",
+        "events": "Events",
+        "mentorship": "Mentorship",
+        "outreach": "Outreach",
+        "public relations": "Public Relations",
+        "secretary": "Secretary",
+        "social": "Social",
+        "treasurer": "Treasurer",
+    }
+    
+    position_lower = position.lower()
+    
+    # First try: Exact match (case-insensitive)
+    if position_lower in role_mapping:
+        return role_mapping[position_lower]
+    
+    # Second try: Substring matching - check if position contains any key
+    # Ordered by specificity (longer/more specific keys first)
+    # Note: Very short abbreviations like "pr" are excluded to avoid false matches
+    substring_keys = [
+        ("co-president", "Co-President"),
+        ("president", "President"),
+        ("professional dev", "Professional Development"),
+        ("prof dev", "Professional Development"),
+        ("profdev", "Professional Development"),
+        ("public rel", "Public Relations"),
+        ("pubrel", "Public Relations"),
+        ("web dev", "Web Development"),
+        ("webdev", "Web Development"),
+        ("freshman rep", "Freshman Representative"),
+        ("prof", "Professional Development"),
+        ("fresh", "Freshman Representative"),
+        ("frosh", "Freshman Representative"),
+        ("pres", "President"),
+        ("acad", "Academic"),
+        ("mentor", "Mentorship"),
+        ("event", "Events"),
+        ("outreach", "Outreach"),
+        ("des", "Design"),
+        ("web", "Web Development"),
+        ("soc", "Social"),
+        # "pr" removed from substring to avoid matching "president"
+        # "out" removed as it's too short and might match unintended words
+    ]
+    
+    for key, standardized_name in substring_keys:
+        if key in position_lower:
+            return standardized_name
+    
+    # Return original if no match found
+    return position
+
 def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major: str = None, 
                position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None,
                headshot_url=None, secondary_headshot_url=None):
@@ -607,17 +738,8 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
             first_name = name_parts[0] if name_parts else ''
             last_name = name_parts[-1] if len(name_parts) > 1 else ''
         
-
-        transformed_roles = {
-            "Prof Dev": "Professional Development",
-            "Professional Development Chair" : "Professional Development",
-            "Professional Development Co-Chair" : "Professional Development",
-            "Web Dev" : "Web Development",
-            "Web Development Chair": "Web Development",
-            "Web Development Co-Chair": "Web Development",
-            "Fresh" : "Freshman Representative",
-            "Freshman Rep" : "Freshman Representative"
-        }
+        # Normalize the position
+        normalized_position = normalize_position(position)
 
         member_data = {
                 'netid': netid.lower() if netid else '',
@@ -625,7 +747,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                 'last_name': last_name,
                 'graduation_year': grad_date,
                 'major': major,
-                'position': transformed_roles.get(position, position),
+                'position': normalized_position,
                 'role': ["eboard"],
                 'ask_about': interests.split(',') if interests else [],
                 'bio': bio,
