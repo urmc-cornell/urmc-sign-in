@@ -1,25 +1,34 @@
-from supabase import create_client
 import os
+import re
 import json
 import requests
+from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
 import pickle
 import os.path
 from slack_service import send_points_notification
+from supabase_clients import get_client, get_supabase_url
 from datetime import datetime
 import pytz
 import io
 import mimetypes
-from PIL import Image
+from PIL import Image, ImageOps
+from pillow_heif import register_heif_opener
+register_heif_opener()  # Adds HEIC/HEIF support to Pillow
 
 # Load environment variables
 load_dotenv()
 
-# Initialize Supabase client
-supabase = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
-)
+def _check_google_api_response(resp, context="API request"):
+    """Check a Google API response and raise a clear error for common failures."""
+    if resp.status_code == 401:
+        raise Exception("Your Google session has expired. Please log out and log back in.")
+    if resp.status_code == 403:
+        raise Exception("Access denied. Try logging out and back in to refresh permissions, or make sure you have edit access.")
+    if resp.status_code == 404:
+        raise Exception("Not found. Double-check the ID or link.")
+    if resp.status_code != 200:
+        raise Exception(f"{context} failed (status {resp.status_code}): {resp.text[:200]}")
 
 def crop_image_to_square(image_bytes):
     """
@@ -35,17 +44,23 @@ def crop_image_to_square(image_bytes):
     try:
         # Load image from bytes
         img = Image.open(io.BytesIO(image_bytes))
-        
+
+        # Apply EXIF orientation so phone photos aren't sideways
+        img = ImageOps.exif_transpose(img)
+
         # Convert to RGB if necessary (handles RGBA, grayscale, etc.)
         if img.mode != 'RGB':
             img = img.convert('RGB')
         
         width, height = img.size
         
-        # If already square, return unchanged
+        # If already square, resize if needed and return
         if width == height:
+            max_size = 800
+            if img.width > max_size:
+                img = img.resize((max_size, max_size), Image.LANCZOS)
             output = io.BytesIO()
-            img.save(output, format='JPEG', quality=95)
+            img.save(output, format='JPEG', quality=85)
             return output.getvalue()
         
         # Determine square size (use smaller dimension)
@@ -67,10 +82,15 @@ def crop_image_to_square(image_bytes):
         
         # Crop the image
         cropped_img = img.crop((left, top, right, bottom))
-        
+
+        # Resize to max 800x800 for fast loading
+        max_size = 800
+        if cropped_img.width > max_size:
+            cropped_img = cropped_img.resize((max_size, max_size), Image.LANCZOS)
+
         # Convert back to bytes
         output = io.BytesIO()
-        cropped_img.save(output, format='JPEG', quality=95)
+        cropped_img.save(output, format='JPEG', quality=85)
         
         return output.getvalue()
         
@@ -79,17 +99,18 @@ def crop_image_to_square(image_bytes):
         # If cropping fails, return original bytes
         return image_bytes
 
-def download_and_upload_headshot(file_id, netid, image_type, credentials, name_for_logging=""):
+def download_and_upload_headshot(file_id, netid, image_type, credentials, name_for_logging="", env="production"):
     """
     Downloads a file from Google Drive and uploads it to Supabase storage
-    
+
     Args:
         file_id: Google Drive file ID
         netid: User's netid for naming
         image_type: 'Primary' or 'Secondary'
         credentials: Google API credentials
         name_for_logging: Name for logging purposes
-    
+        env: 'staging' or 'production'
+
     Returns:
         URL of uploaded file in Supabase storage or None if failed
     """
@@ -125,13 +146,18 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
         # Create file name for Supabase storage
         supabase_filename = f"{netid.lower()}{image_type}{extension}"
         
-        # Process image: crop to square if needed
+        # Process image: crop to square and convert to JPEG (handles HEIC, PNG, etc.)
         file_bytes = download_response.content
         file_bytes = crop_image_to_square(file_bytes)
-        
+        # crop_image_to_square always outputs JPEG, so force extension and mime
+        extension = '.jpeg'
+        mime_type = 'image/jpeg'
+        supabase_filename = f"{netid.lower()}{image_type}{extension}"
+
         # Try to upload first, if it fails due to duplicate, delete and re-upload
+        sb = get_client(env)
         try:
-            upload_response = supabase.storage.from_("headshots").upload(
+            upload_response = sb.storage.from_("headshots").upload(
                 f"eboard/{supabase_filename}",
                 file_bytes,
                 {"content-type": mime_type}
@@ -141,9 +167,9 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
             if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
                 try:
                     # Delete the existing file
-                    delete_response = supabase.storage.from_("headshots").remove([f"eboard/{supabase_filename}"])
+                    delete_response = sb.storage.from_("headshots").remove([f"eboard/{supabase_filename}"])
                     # Re-upload the new file
-                    upload_response = supabase.storage.from_("headshots").upload(
+                    upload_response = sb.storage.from_("headshots").upload(
                         f"eboard/{supabase_filename}",
                         file_bytes,
                         {"content-type": mime_type}
@@ -156,7 +182,7 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
                 return None
         
         # Construct the public URL
-        public_url = f"{os.getenv('SUPABASE_URL')}/storage/v1/object/public/headshots/eboard/{supabase_filename}"
+        public_url = f"{get_supabase_url(env)}/storage/v1/object/public/headshots/eboard/{supabase_filename}"
         
         print(f"Successfully uploaded {image_type} headshot for {name_for_logging}")
         return public_url
@@ -165,10 +191,10 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
         print(f"Error processing headshot for {name_for_logging}: {str(e)}")
         return None
 
-def process_headshot_upload(question_id, submission_info, netid, headshot_type, credentials, name):
+def process_headshot_upload(question_id, submission_info, netid, headshot_type, credentials, name, env="production"):
     """
     Helper function to process headshot uploads from Google Form submissions
-    
+
     Args:
         question_id: The question ID for the headshot field
         submission_info: The submission data from Google Forms
@@ -176,7 +202,8 @@ def process_headshot_upload(question_id, submission_info, netid, headshot_type, 
         headshot_type: 'Primary' or 'Secondary'
         credentials: Google API credentials
         name: User's name for logging
-    
+        env: 'staging' or 'production'
+
     Returns:
         URL of uploaded headshot or None if no file or upload failed
     """
@@ -192,21 +219,19 @@ def process_headshot_upload(question_id, submission_info, netid, headshot_type, 
             file_id = files[0].get('fileId')
             if file_id:
                 return download_and_upload_headshot(
-                    file_id, netid, headshot_type, credentials, name
+                    file_id, netid, headshot_type, credentials, name, env=env
                 )
     
     return None
 
-def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str = None):
+def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str = None, env: str = "production"):
     try:
-        # Check if environment variables are set
-        if not os.getenv("SUPABASE_URL") or not os.getenv("SUPABASE_SERVICE_KEY"):
-            raise Exception("Missing Supabase environment variables. Check your .env file.")
-        
+        sb = get_client(env)
+
         semester = "sp25"
         # First check if member exists
         try:
-            response = supabase.table('members').select('id, email').eq('netid', netid.lower()).execute()
+            response = sb.table('members').select('id, email').eq('netid', netid.lower()).execute()
         except Exception as db_err:
             raise Exception(f"Supabase connection error: {str(db_err)}")
 
@@ -219,7 +244,7 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
                 'email': f"{netid.lower()}@cornell.edu"
             }
             try:
-                member_response = supabase.table('members').insert(member_data).execute()
+                member_response = sb.table('members').insert(member_data).execute()
                 member_id = member_response.data[0]['id']
                 member_email = member_response.data[0]['email']
             except Exception as insert_err:
@@ -238,12 +263,12 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
         }
 
         try:
-            points_response = supabase.table('points_tracking').insert(points_data).execute()
+            points_response = sb.table('points_tracking').insert(points_data).execute()
         except Exception as points_err:
             raise Exception(f"Error inserting points data: {str(points_err)}")
-        
-        # Send Slack notification
-        if member_email:
+
+        # Send Slack notification (skip in staging to avoid DMing real users)
+        if member_email and env == "production":
             try:
                 send_points_notification(member_email, points_to_add, reason)
             except Exception as slack_err:
@@ -259,7 +284,7 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
 
 # Get points via the responses object from Google Forms
 # This is good to use when collecting responses from an event that copied the base template
-def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None):
+def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None, env: str = "production"):
     try:
         # If credentials provided, use them. Otherwise use existing token logic
         if not credentials:
@@ -328,7 +353,7 @@ def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None)
             try:
                 name = submission_info[name_question_id]['textAnswers']['answers'][0]['value']
                 netid = submission_info[netid_question_id]['textAnswers']['answers'][0]['value']
-                add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason)
+                add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason, env=env)
                 processed_count += 1
             except KeyError as e:
                 print(f"Error processing submission: Missing field {e}")
@@ -348,7 +373,7 @@ def retrieve_event_responses(form_id: str, points_to_add: int, credentials=None)
         print(f"Retrieved and processed {len(form_responses)} event responses")
 
 
-def retrieve_eboard_responses(form_id: str, credentials=None):
+def retrieve_eboard_responses(form_id: str, credentials=None, env: str = "production"):
     try:
         # ========== TEST MODE ==========
         # Add netids here to ONLY update these specific people
@@ -369,8 +394,8 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
         # First, get the form structure to find question IDs
         form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
         form_request = requests.get(url=form_url, headers=head)
+        _check_google_api_response(form_request, "Form structure request")
         form_data = json.loads(form_request.text)
-        
 
         # Find the question IDs for all form fields
         name_question_id = None
@@ -397,9 +422,9 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
                 grad_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'position' in title or 'role' in title or 'title' in title:
                 position_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'profile page' in title:
+            elif 'headshot' in title and 'second' not in title:
                 headshot_1_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
-            elif 'second' in title and 'picture' in title:
+            elif 'second' in title and ('photo' in title or 'picture' in title or 'headshot' in title):
                 headshot_2_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
             elif 'interested in' in title or 'ask about' in title:
                 interests_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
@@ -412,8 +437,12 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
             elif 'short bio' in title or 'bio' in title:
                 bio_question_id = item.get('questionItem', {}).get('question', {}).get('questionId')
 
+        print(f"Headshot 1 question ID: {headshot_1_question_id}")
+        print(f"Headshot 2 question ID: {headshot_2_question_id}")
+
         # Get form responses
         request = requests.get(url=url, headers=head)
+        _check_google_api_response(request, "Form responses request")
         response = json.loads(request.text)
         form_responses = response.get('responses', [])
         print(f"Form responses count: {len(form_responses)}")
@@ -461,13 +490,13 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
 
                 # Process headshot file uploads
                 headshot_url = process_headshot_upload(
-                    headshot_1_question_id, submission_info, netid, 'Primary', credentials, name
+                    headshot_1_question_id, submission_info, netid, 'Primary', credentials, name, env=env
                 )
                 secondary_headshot_url = process_headshot_upload(
-                    headshot_2_question_id, submission_info, netid, 'Secondary', credentials, name
+                    headshot_2_question_id, submission_info, netid, 'Secondary', credentials, name, env=env
                 )
 
-                add_eboard(netid, name, grad_date, major, position, interests, bio, insta, linkedin, headshot_url, secondary_headshot_url)
+                add_eboard(netid, name, grad_date, major, position, interests, bio, insta, linkedin, headshot_url, secondary_headshot_url, env=env)
             except KeyError as e:
                 print(f"Error processing submission: {e}")
                 continue
@@ -480,7 +509,142 @@ def retrieve_eboard_responses(form_id: str, credentials=None):
     else:
         print(f"Retrieved and processed {len(form_responses)} eboard responses")
 
-def retrieve_ta_responses(form_id: str, credentials=None):
+def _extract_drive_file_id(url_str):
+    """Extract Google Drive file ID from a Drive URL."""
+    if not url_str or not url_str.strip():
+        return None
+    url_str = url_str.strip()
+    # Handle https://drive.google.com/open?id=FILE_ID
+    if 'drive.google.com' in url_str:
+        parsed = urlparse(url_str)
+        qs = parse_qs(parsed.query)
+        if 'id' in qs:
+            return qs['id'][0]
+        # Handle https://drive.google.com/file/d/FILE_ID/view
+        match = re.search(r'/file/d/([a-zA-Z0-9_-]+)', url_str)
+        if match:
+            return match.group(1)
+    return None
+
+def retrieve_eboard_from_sheet(sheet_id: str, credentials=None, env: str = "production"):
+    """Process eboard members from a Google Sheet (same columns as the form responses)."""
+    try:
+        if not credentials:
+            raise ValueError("Credentials are required")
+
+        token = credentials.token
+        headers = {'Authorization': f'Bearer {token}'}
+
+        # Get spreadsheet metadata to find all sheet names
+        meta_url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}?fields=sheets.properties"
+        meta_resp = requests.get(meta_url, headers=headers)
+        _check_google_api_response(meta_resp, "Google Sheets metadata request")
+        sheets_info = meta_resp.json().get('sheets', [])
+
+        # Use the first sheet by default
+        sheet_name = sheets_info[0]['properties']['title'] if sheets_info else 'Sheet1'
+        print(f"Reading from sheet tab: '{sheet_name}'")
+
+        # Read all data from that sheet
+        url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/'{sheet_name}'!A:Z"
+        resp = requests.get(url, headers=headers)
+        _check_google_api_response(resp, "Google Sheets request")
+        data = resp.json()
+        rows = data.get('values', [])
+
+        if len(rows) < 2:
+            raise Exception("Sheet has no data rows (only header or empty).")
+
+        # Map column headers to indices using same fuzzy matching as form version
+        header = [h.lower().strip() for h in rows[0]]
+        col = {}
+        for i, title in enumerate(header):
+            if 'full name' in title or ('name' in title and 'net' not in title and 'instagram' not in title and 'linkedin' not in title and 'position' not in title):
+                col.setdefault('name', i)
+            elif 'netid' in title or 'net id' in title:
+                col.setdefault('netid', i)
+            elif 'graduation' in title or ('grad' in title and 'instagram' not in title):
+                col.setdefault('grad', i)
+            elif 'position' in title or 'role' in title or 'title' in title:
+                col.setdefault('position', i)
+            elif 'headshot' in title and 'second' not in title:
+                col.setdefault('headshot1', i)
+            elif 'second' in title and ('photo' in title or 'picture' in title or 'headshot' in title):
+                col.setdefault('headshot2', i)
+            elif 'interested in' in title or 'ask about' in title:
+                col.setdefault('interests', i)
+            elif 'majors and year' in title or ('major' in title and 'year' in title):
+                col.setdefault('major', i)
+            elif 'instagram' in title:
+                col.setdefault('insta', i)
+            elif 'linkedin' in title:
+                col.setdefault('linkedin', i)
+            elif 'short bio' in title or 'bio' in title:
+                col.setdefault('bio', i)
+
+        print(f"Sheet headers: {header}")
+        print(f"Sheet columns mapped: {col}")
+        print(f"Sheet data rows: {len(rows) - 1}")
+
+        if 'name' not in col or 'netid' not in col:
+            raise Exception(f"Could not find name or netid columns in sheet headers: {rows[0]}")
+
+        def get_cell(row, key):
+            idx = col.get(key)
+            if idx is None or idx >= len(row):
+                return None
+            val = row[idx].strip() if row[idx] else None
+            return val
+
+        processed = 0
+        errors = 0
+        for row in rows[1:]:
+            try:
+                name = get_cell(row, 'name')
+                netid = get_cell(row, 'netid')
+                if not netid:
+                    continue
+
+                grad_date = get_cell(row, 'grad')
+                major = get_cell(row, 'major')
+                position = get_cell(row, 'position')
+                interests = get_cell(row, 'interests')
+                bio = get_cell(row, 'bio')
+                insta = get_cell(row, 'insta')
+                linkedin = get_cell(row, 'linkedin')
+
+                # Process headshots from Drive links
+                headshot_url = None
+                headshot1_link = get_cell(row, 'headshot1')
+                if headshot1_link:
+                    file_id = _extract_drive_file_id(headshot1_link)
+                    if file_id:
+                        headshot_url = download_and_upload_headshot(
+                            file_id, netid, 'Primary', credentials, name or netid, env=env
+                        )
+
+                secondary_headshot_url = None
+                headshot2_link = get_cell(row, 'headshot2')
+                if headshot2_link:
+                    file_id = _extract_drive_file_id(headshot2_link)
+                    if file_id:
+                        secondary_headshot_url = download_and_upload_headshot(
+                            file_id, netid, 'Secondary', credentials, name or netid, env=env
+                        )
+
+                add_eboard(netid, name, grad_date, major, position, interests, bio, insta, linkedin, headshot_url, secondary_headshot_url, env=env)
+                processed += 1
+            except Exception as e:
+                print(f"Error processing row for {get_cell(row, 'name') or 'unknown'}: {str(e)}")
+                errors += 1
+                continue
+
+        print(f"Sheet processing complete: {processed} succeeded, {errors} errors")
+
+    except Exception as e:
+        raise Exception(f"Error processing sheet: {str(e)}")
+
+def retrieve_ta_responses(form_id: str, credentials=None, env: str = "production"):
     try:
         # If credentials provided, use them. Otherwise use existing token logic
         if not credentials:
@@ -495,8 +659,8 @@ def retrieve_ta_responses(form_id: str, credentials=None):
         # First, get the form structure to find question IDs
         form_url = f"https://forms.googleapis.com/v1/forms/{form_id}"
         form_request = requests.get(url=form_url, headers=head)
+        _check_google_api_response(form_request, "Form structure request")
         form_data = json.loads(form_request.text)
-        
 
         # Find the question IDs for name and netID
         name_question_id = None
@@ -524,9 +688,10 @@ def retrieve_ta_responses(form_id: str, credentials=None):
 
         # Get form responses
         request = requests.get(url=url, headers=head)
+        _check_google_api_response(request, "Form responses request")
         response = json.loads(request.text)
         form_responses = response.get('responses', [])
-        
+
         # Process each response
         for submission in form_responses:
             submission_info = submission.get('answers', {})
@@ -538,7 +703,7 @@ def retrieve_ta_responses(form_id: str, credentials=None):
                 office_hours = submission_info.get(office_hours_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
                 review_session = submission_info.get(review_session_question_id, {}).get('textAnswers', {}).get('answers', [{}])[0].get('value', None)
 
-                add_ta(netid, name, grad_date, course, office_hours, review_session)
+                add_ta(netid, name, grad_date, course, office_hours, review_session, env=env)
             except KeyError as e:
                 print(f"Error processing submission: {e}")
                 continue
@@ -556,9 +721,10 @@ def is_integer_string(s):
             return False
 
 def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: str = None,
-           office_hours : str = None, review_session : str = None): 
+           office_hours : str = None, review_session : str = None, env: str = "production"):
     try:
-        semester = "fa25" 
+        sb = get_client(env)
+        semester = "fa25"
         member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0],
@@ -569,14 +735,14 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
                 'review_sessions': review_session,
                 'ta_semester': semester
             }
-        
+
         response = (
-            supabase.table("members")
+            sb.table("members")
             .upsert(member_data, on_conflict=["netid"])
             .execute()
             )
-    
-        row = supabase.table("members").select("role").eq("netid", netid.lower()).single().execute()
+
+        row = sb.table("members").select("role").eq("netid", netid.lower()).single().execute()
         if row.data:
             existing_list = row.data["role"] or []  # Handle NULL case
         else:
@@ -585,7 +751,7 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
             data = {'role': existing_list}
         else:
             data = {'role': existing_list + ["ta"]}
-        supabase.table("members").update(data).eq("netid", netid.lower()).execute()
+        sb.table("members").update(data).eq("netid", netid.lower()).execute()
 
         print(f"Added {name} to ta directory")
         return response.data
@@ -724,12 +890,13 @@ def normalize_position(position: str) -> str:
     # Return original if no match found
     return position
 
-def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major: str = None, 
+def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major: str = None,
                position: str = None, interests: str = None, bio: str = None, insta=None, linkedin=None,
-               headshot_url=None, secondary_headshot_url=None):
+               headshot_url=None, secondary_headshot_url=None, env: str = "production"):
     try:
+        sb = get_client(env)
         semester = "sp26"
-        
+
         # Handle name parsing safely
         first_name = ''
         last_name = ''
@@ -737,7 +904,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
             name_parts = name.split()
             first_name = name_parts[0] if name_parts else ''
             last_name = name_parts[-1] if len(name_parts) > 1 else ''
-        
+
         # Normalize the position
         normalized_position = normalize_position(position)
 
@@ -748,25 +915,30 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                 'graduation_year': grad_date,
                 'major': major,
                 'position': normalized_position,
-                'role': ["eboard"],
                 'ask_about': interests.split(',') if interests else [],
                 'bio': bio,
                 'linkedin_url': linkedin,
                 'instagram_url': insta
             }
-        
+
         # Add headshot URLs if provided
         if headshot_url:
             member_data['headshot_url'] = headshot_url
         if secondary_headshot_url:
             member_data['secondary_headshot_url'] = secondary_headshot_url
-        
+
         response = (
-            supabase.table("members")
+            sb.table("members")
             .upsert(member_data, on_conflict=["netid"])
             .execute()
             )
-    
+
+        # Add "eboard" to role list without overwriting existing roles
+        row = sb.table("members").select("role").eq("netid", (netid.lower() if netid else '')).single().execute()
+        existing_list = row.data["role"] or [] if row.data else []
+        if "eboard" not in existing_list:
+            sb.table("members").update({"role": existing_list + ["eboard"]}).eq("netid", (netid.lower() if netid else '')).execute()
+
         print(f"Added {name} to eboard")
         return response.data
     
@@ -777,7 +949,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
     
 # Get points via the responses object from Google Forms
 # This is good to use when collecting responses from an event that copied the base template
-def add_members(form_id: str, points_to_add: int, credentials=None):
+def add_members(form_id: str, points_to_add: int, credentials=None, env: str = "production"):
     try:
         # If credentials provided, use them. Otherwise use existing token logic
         if not credentials:
@@ -824,7 +996,7 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
             try:
                 name = submission_info[name_question_id]['textAnswers']['answers'][0]['value']
                 netid = submission_info[netid_question_id]['textAnswers']['answers'][0]['value']
-                add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason)
+                add_or_update_points(netid=netid, points_to_add=points_to_add, name=name, reason=reason, env=env)
             except KeyError as e:
                 print(f"Error processing submission: {e}")
                 continue
@@ -836,28 +1008,29 @@ def add_members(form_id: str, points_to_add: int, credentials=None):
 
 
 def add_event(name: str = None, description: str = None, flyer_url: str = None, insta=None,
-              month: str = None, day: str = None, year: str = None):
+              month: str = None, day: str = None, year: str = None, env: str = "production"):
     try:
+        sb = get_client(env)
         # Convert date strings to datetime object
         # Assuming month is full name (e.g., "January"), day is string number ("1"), year is string ("2024")
         date_string = f"{month} {day} {year}"
         date_object = datetime.strptime(date_string, "%B %d %Y")
-        
+
         # Make it timezone-aware (using UTC)
         event_date = date_object.replace(tzinfo=pytz.UTC).isoformat()
-        semester = "sp25" 
+        semester = "sp25"
 
         event_data = {
             'name': name,
             'description': description,
             'flyer_url': flyer_url,
             'instagram_url': insta,
-            'date': event_date, 
+            'date': event_date,
             'semester':semester
         }
 
         response = (
-            supabase.table("events")
+            sb.table("events")
             .insert(event_data)
             .execute()
         )
