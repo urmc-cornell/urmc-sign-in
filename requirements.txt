@@ -4,6 +4,7 @@ google-auth-oauthlib>=1.0
 google-auth>=2.0
 gspread>=5.0
 Pillow>=10.0
+pillow-heif>=0.16
 python-dotenv>=1.0
 pytz
 requests>=2.31
