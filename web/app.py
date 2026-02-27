@@ -249,7 +249,9 @@ def push_to_prod():
     try:
         results = push_to_production()
         error_text = f" Errors: {results['errors']}" if results['errors'] else ""
-        session['message'] = f"Push complete! Members: {results['members']}, Events: {results['events']}, Points: {results['points']}, Headshots: {results['headshots']}.{error_text}"
+        skipped = results.get('skipped_headshots', 0)
+        deleted = results.get('deleted_headshots', 0)
+        session['message'] = f"Push complete! Members: {results['members']}, Events: {results['events']}, Points: {results['points']}, Headshots: {results['headshots']} synced, {skipped} unchanged, {deleted} removed.{error_text}"
     except Exception as e:
         session['message'] = f"Error: {str(e)}"
     return redirect('/')
@@ -261,7 +263,9 @@ def pull_from_prod():
     try:
         results = pull_from_production()
         error_text = f" Errors: {results['errors']}" if results['errors'] else ""
-        session['message'] = f"Pull complete! Members: {results['members']}, Events: {results['events']}, Points: {results['points']}, Headshots: {results['headshots']}.{error_text}"
+        skipped = results.get('skipped_headshots', 0)
+        deleted = results.get('deleted_headshots', 0)
+        session['message'] = f"Pull complete! Members: {results['members']}, Events: {results['events']}, Points: {results['points']}, Headshots: {results['headshots']} synced, {skipped} unchanged, {deleted} removed.{error_text}"
     except Exception as e:
         session['message'] = f"Error: {str(e)}"
     return redirect('/')
