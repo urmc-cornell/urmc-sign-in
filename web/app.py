@@ -1,11 +1,13 @@
 from flask import Flask, session, redirect, request, send_file, jsonify
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
+from dotenv import load_dotenv
 import os
 import re
 from pathlib import Path
 import sys
 
+load_dotenv()
 os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'  # Allows HTTP (instead of HTTPS) for local development
 
 # Add backend directory to path so we can import point_service
@@ -61,7 +63,7 @@ def index():
 def login():
     # Initialize the OAuth2 flow
     flow = Flow.from_client_secrets_file(
-        'client_secrets.json',
+        str(Path(__file__).parent.parent / 'client_secrets.json'),
         scopes=SCOPES,
         redirect_uri='http://localhost:8080/oauth2callback'
     )
@@ -75,7 +77,7 @@ def login():
 def oauth2callback():
     # Initialize the OAuth2 flow
     flow = Flow.from_client_secrets_file(
-        'client_secrets.json',
+        str(Path(__file__).parent.parent / 'client_secrets.json'),
         scopes=SCOPES,
         state=session['state']
     )

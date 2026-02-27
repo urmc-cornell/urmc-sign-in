@@ -1,31 +1,27 @@
 from supabase import create_client
 import os
 from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv()
+# Explicitly load .env from project root
+load_dotenv(Path(__file__).parent.parent / '.env', override=True)
 
-# Production client
-_prod_client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY")
-)
-
-# Staging client (initialized only if env vars are set)
+_prod_url = os.getenv("SUPABASE_URL")
+_prod_key = os.getenv("SUPABASE_SERVICE_KEY")
 _staging_url = os.getenv("STAGING_SUPABASE_URL")
 _staging_key = os.getenv("STAGING_SUPABASE_SERVICE_KEY")
-_staging_client = create_client(_staging_url, _staging_key) if _staging_url and _staging_key else None
 
-PROD_SUPABASE_URL = os.getenv("SUPABASE_URL")
+PROD_SUPABASE_URL = _prod_url
 STAGING_SUPABASE_URL = _staging_url
 
 
 def get_client(env: str = "production"):
-    """Return the Supabase client for the given environment."""
+    """Return a fresh Supabase client for the given environment."""
     if env == "staging":
-        if not _staging_client:
+        if not _staging_url or not _staging_key:
             raise Exception("Staging Supabase credentials not configured. Add STAGING_SUPABASE_URL and STAGING_SUPABASE_SERVICE_KEY to your .env file.")
-        return _staging_client
-    return _prod_client
+        return create_client(_staging_url, _staging_key)
+    return create_client(_prod_url, _prod_key)
 
 
 def get_supabase_url(env: str = "production"):

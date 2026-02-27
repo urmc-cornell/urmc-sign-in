@@ -26,10 +26,36 @@
             cursor: pointer;
         }
         button:hover { background-color: #45a049; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
         .message { margin-top: 10px; color: #666; }
+        .loading-overlay {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.5); z-index: 1000;
+            justify-content: center; align-items: center;
+        }
+        .loading-overlay.active { display: flex; }
+        .loading-box {
+            background: white; padding: 30px 40px; border-radius: 12px;
+            text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .spinner {
+            width: 40px; height: 40px; margin: 0 auto 15px;
+            border: 4px solid #ddd; border-top: 4px solid #4CAF50;
+            border-radius: 50%; animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
+    <div class="loading-overlay" id="loading-overlay">
+        <div class="loading-box">
+            <div class="spinner"></div>
+            <div id="loading-text" style="font-weight: bold; font-size: 1.1em;">Syncing data...</div>
+            <div style="color: #666; margin-top: 8px; font-size: 0.9em;">This may take a moment for headshots</div>
+        </div>
+    </div>
+
     <div class="container">
         <h1>URMC Database Management</h1>
 
@@ -57,18 +83,18 @@
         <div class="form-section" id="push-section" style="border: 2px solid #17a2b8; background-color: #d1ecf1; display: none;">
             <h2>Staging Actions</h2>
             <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                <form action="/pull_from_production" method="POST" style="flex: 1;"
-                      onsubmit="return confirm('This will copy all production data into staging. Continue?');">
-                    <button type="submit" style="background-color: #17a2b8;">
+                <div style="flex: 1;">
+                    <button type="button" onclick="syncAction('/pull_from_production', 'Pulling from production...')"
+                            style="background-color: #17a2b8;" id="btn-pull">
                         Pull from Production
                     </button>
-                </form>
-                <form action="/push_to_production" method="POST" style="flex: 1;"
-                      onsubmit="return confirm('Are you sure you want to push all staging data to production?');">
-                    <button type="submit" style="background-color: #dc3545;">
+                </div>
+                <div style="flex: 1;">
+                    <button type="button" onclick="syncAction('/push_to_production', 'Pushing to production...')"
+                            style="background-color: #dc3545;" id="btn-push">
                         Push to Production
                     </button>
-                </form>
+                </div>
             </div>
             <p style="color: #0c5460; margin: 0; font-size: 0.9em;"><strong>Pull</strong> = copy production data into staging (to start fresh). <strong>Push</strong> = send staging changes to production.</p>
         </div>
@@ -269,6 +295,42 @@
                     document.querySelector('.container').insertBefore(banner, document.querySelector('.container').children[1]);
                 }
             });
+
+        function showLoading(msg) {
+            var overlay = document.getElementById('loading-overlay');
+            document.getElementById('loading-text').textContent = msg || 'Processing...';
+            overlay.classList.add('active');
+        }
+
+        // Show loading on all regular form submissions
+        document.querySelectorAll('form[action]').forEach(function(form) {
+            form.addEventListener('submit', function() {
+                showLoading('Processing...');
+            });
+        });
+
+        function syncAction(url, loadingMsg) {
+            const confirmMsg = url.includes('push')
+                ? 'Are you sure you want to push all staging data to production?'
+                : 'This will copy all production data into staging. Continue?';
+            if (!confirm(confirmMsg)) return;
+
+            const overlay = document.getElementById('loading-overlay');
+            const loadingText = document.getElementById('loading-text');
+            loadingText.textContent = loadingMsg;
+            overlay.classList.add('active');
+
+            fetch(url, { method: 'POST', redirect: 'follow' })
+                .then(() => {
+                    overlay.classList.remove('active');
+                    window.location.href = '/';
+                })
+                .catch(err => {
+                    overlay.classList.remove('active');
+                    alert('Request failed: ' + err.message);
+                });
+        }
+
         function toggleEboardSource(source) {
             const formEl = document.getElementById('eboard-form');
             const sheetEl = document.getElementById('eboard-sheet');

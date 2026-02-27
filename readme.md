@@ -21,27 +21,20 @@
    ```
 
 4. **Set up Google API credentials**:
-   - Place your `client_secrets.json` file in the `web/` directory
+   - Place your `client_secrets.json` file in the project root
    - This file should contain your Google OAuth 2.0 credentials
-  
-5. **Configure Envrioment Variables**:
-   - Place the `.env` file in the `backend/` directory
-   - This file should contain supabase and slack variables
+
+5. **Configure Environment Variables**:
+   - Copy `.env.example` to `.env` in the project root and fill in the values
+   - Ask a team member for the actual credentials
 
 ## Running the Application
 
-1. **Navigate to the web directory**:
+1. **Run the Flask application**:
 
    ```bash
-   cd web
+   python web/app.py
    ```
 
-2. **Run the Flask application**:
-
-   ```bash
-   python3 app.py
-   ```
-
-3. **Access the application**:
-   - Open your web browser and go to `http://localhost:8080`
+2. **Access the application** at `http://localhost:8080`
    - You'll be redirected to Google OAuth for authentication
