@@ -1,5 +1,5 @@
 from supabase import create_client
-from supabase.lib.client_options import ClientOptions
+from supabase.lib.client_options import SyncClientOptions
 import os
 from dotenv import load_dotenv
 from pathlib import Path
@@ -20,11 +20,13 @@ DEFAULT_STORAGE_TIMEOUT = 60  # seconds (up from library default of 20)
 
 def get_client(env: str = "production", storage_timeout: int = DEFAULT_STORAGE_TIMEOUT):
     """Return a fresh Supabase client for the given environment."""
-    options = ClientOptions(storage_client_timeout=storage_timeout)
+    options = SyncClientOptions(storage_client_timeout=storage_timeout)
     if env == "staging":
         if not _staging_url or not _staging_key:
             raise Exception("Staging Supabase credentials not configured. Add STAGING_SUPABASE_URL and STAGING_SUPABASE_SERVICE_KEY to your .env file.")
         return create_client(_staging_url, _staging_key, options)
+    if not _prod_url or not _prod_key:
+        raise Exception("Production Supabase credentials not configured. Add SUPABASE_URL and SUPABASE_SERVICE_KEY to your .env file.")
     return create_client(_prod_url, _prod_key, options)
 
 
