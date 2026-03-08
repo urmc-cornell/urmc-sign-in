@@ -4,6 +4,7 @@ from google.oauth2.credentials import Credentials
 from dotenv import load_dotenv
 import os
 import re
+import secrets
 from pathlib import Path
 import sys
 
@@ -51,6 +52,20 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets.readonly'
 ]
 
+def get_credentials():
+    """Reconstruct Google credentials from session. Returns None if session is missing/invalid."""
+    credentials_info = session.get('credentials')
+    if not credentials_info:
+        return None
+    return Credentials(
+        token=credentials_info['token'],
+        refresh_token=credentials_info['refresh_token'],
+        token_uri=credentials_info['token_uri'],
+        client_id=credentials_info['client_id'],
+        client_secret=credentials_info['client_secret'],
+        scopes=credentials_info['scopes']
+    )
+
 @app.route('/')
 def index():
     # If user is not logged in, redirect to login page
@@ -68,8 +83,14 @@ def login():
         redirect_uri='http://localhost:8080/oauth2callback'
     )
     # Generate the authorization URL and save the state
-    authorization_url, state = flow.authorization_url(access_type='offline')
+    authorization_url, state = flow.authorization_url(
+        access_type='offline',
+        prompt='select_account'
+    )
     session['state'] = state
+    # Save the PKCE code_verifier if the library auto-generated one
+    if getattr(flow, 'code_verifier', None):
+        session['code_verifier'] = flow.code_verifier
     # Redirect the user to the Google login page
     return redirect(authorization_url)
 
@@ -82,7 +103,9 @@ def oauth2callback():
         state=session['state']
     )
     flow.redirect_uri = 'http://localhost:8080/oauth2callback'
-    
+    # Restore the PKCE code_verifier from the session
+    flow.code_verifier = session.pop('code_verifier', None)
+
     # Fetch the token from the authorization response
     flow.fetch_token(authorization_response=request.url)
     credentials = flow.credentials
@@ -136,22 +159,12 @@ def process_form(form_type):
     else:
         points_value = 0
 
-    # Retrieve credentials from session
-    credentials_info = session.get('credentials')
-    credentials = Credentials(
-        token=credentials_info['token'],
-        refresh_token=credentials_info['refresh_token'],
-        token_uri=credentials_info['token_uri'],
-        client_id=credentials_info['client_id'],
-        client_secret=credentials_info['client_secret'],
-        scopes=credentials_info['scopes']
-    )
-    
+    credentials = get_credentials()
+    if not credentials:
+        return redirect('/login')
+
     env = session.get('env', 'staging')
     try:
-        # If credentials are not provided, raise an error
-        if not credentials:
-            raise ValueError("Credentials are required")
         # Retrieve and process the form responses
         if form_type == 'eboard':
             retrieve_eboard_responses(form_id, credentials, env=env)
@@ -174,15 +187,9 @@ def process_sheet_eboard():
         session['message'] = f"Error: {str(e)}"
         return redirect('/')
 
-    credentials_info = session.get('credentials')
-    credentials = Credentials(
-        token=credentials_info['token'],
-        refresh_token=credentials_info['refresh_token'],
-        token_uri=credentials_info['token_uri'],
-        client_id=credentials_info['client_id'],
-        client_secret=credentials_info['client_secret'],
-        scopes=credentials_info['scopes']
-    )
+    credentials = get_credentials()
+    if not credentials:
+        return redirect('/login')
 
     env = session.get('env', 'staging')
     try:
@@ -197,15 +204,10 @@ def process_event():
     if 'credentials' not in session:
         return redirect('/login')
     
-    credentials_info = session.get('credentials')
-    credentials = Credentials(
-        token=credentials_info['token'],
-        refresh_token=credentials_info['refresh_token'],
-        token_uri=credentials_info['token_uri'],
-        client_id=credentials_info['client_id'],
-        client_secret=credentials_info['client_secret'],
-        scopes=credentials_info['scopes']
-    )
+    credentials = get_credentials()
+    if not credentials:
+        return redirect('/login')
+
     name = request.form['name']
     description = request.form['description']
     flyer_url = request.form['flyer_url']
@@ -215,10 +217,6 @@ def process_event():
     year = request.form['year']
     env = session.get('env', 'staging')
     try:
-        # If credentials are not provided, raise an error
-        if not credentials:
-            raise ValueError("Credentials are required")
-
         add_event(name, description, flyer_url, insta, month, day, year, env=env)
         session['message'] = "Event added successfully!"
     except Exception as e:

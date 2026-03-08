@@ -8,8 +8,21 @@ import pickle
 import os.path
 from slack_service import send_points_notification
 from supabase_clients import get_client, get_supabase_url
-from datetime import datetime
+from datetime import datetime, date
 import pytz
+
+
+def current_semester():
+    """Return the current semester string (e.g. 'sp26', 'su26', 'fa26')."""
+    today = date.today()
+    year_short = str(today.year % 100)
+    month = today.month
+    if 1 <= month <= 5:
+        return f"sp{year_short}"
+    elif 6 <= month <= 7:
+        return f"su{year_short}"
+    else:
+        return f"fa{year_short}"
 import io
 import mimetypes
 from PIL import Image, ImageOps
@@ -228,7 +241,7 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
     try:
         sb = get_client(env)
 
-        semester = "sp25"
+        semester = current_semester()
         # First check if member exists
         try:
             response = sb.table('members').select('id, email').eq('netid', netid.lower()).execute()
@@ -274,7 +287,13 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
             except Exception as slack_err:
                 print(f"Warning: Slack notification failed: {str(slack_err)}")
                 # Continue execution even if Slack notification fails
-            
+
+            # Mirror points to staging so both environments stay in sync
+            try:
+                add_or_update_points(netid=netid, points_to_add=points_to_add, reason=reason, name=name, env="staging")
+            except Exception as sync_err:
+                print(f"Warning: Staging sync failed: {str(sync_err)}")
+
         print(f"Added {points_to_add} points for {name or netid}")
         return points_response.data
     
@@ -724,7 +743,7 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
            office_hours : str = None, review_session : str = None, env: str = "production"):
     try:
         sb = get_client(env)
-        semester = "fa25"
+        semester = current_semester()
         member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0],
@@ -895,7 +914,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
                headshot_url=None, secondary_headshot_url=None, env: str = "production"):
     try:
         sb = get_client(env)
-        semester = "sp26"
+        semester = current_semester()
 
         # Handle name parsing safely
         first_name = ''
@@ -1018,7 +1037,7 @@ def add_event(name: str = None, description: str = None, flyer_url: str = None, 
 
         # Make it timezone-aware (using UTC)
         event_date = date_object.replace(tzinfo=pytz.UTC).isoformat()
-        semester = "sp25"
+        semester = current_semester()
 
         event_data = {
             'name': name,
