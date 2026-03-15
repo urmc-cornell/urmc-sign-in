@@ -253,7 +253,7 @@ def add_or_update_points(netid: str, points_to_add: int, reason: str, name: str 
             member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0] if name else '',
-                'last_name': name.split()[-1] if name and len(name.split()) > 1 else '',
+                'last_name': " ".join(name[1:]) if name and len(name.split()) > 1 else '',
                 'email': f"{netid.lower()}@cornell.edu"
             }
             try:
@@ -747,7 +747,7 @@ def add_ta(netid: str = None, name: str = None, grad_date: str = None, course: s
         member_data = {
                 'netid': netid.lower(),
                 'first_name': name.split()[0],
-                'last_name': name.split()[-1] if len(name.split()) > 1 else '',
+                'last_name': " ".join(name[1:]) if len(name.split()) > 1 else '',
                 'graduation_year': grad_date if is_integer_string(grad_date) else None,
                 # 'course': course,
                 'office_hours': office_hours,
@@ -810,7 +810,13 @@ def normalize_position(position: str) -> str:
         # President variations (check first to avoid conflicts)
         "president": "President",
         "co-president": "Co-President",
+        "co president": "Co-President",
         "pres": "President",
+
+        # Vice President variations
+        "vice-president" : "Vice-President",
+        "vice president" : "Vice-President",
+
         
         # Professional Development variations
         "prof dev": "Professional Development",
@@ -878,7 +884,7 @@ def normalize_position(position: str) -> str:
     # Note: Very short abbreviations like "pr" are excluded to avoid false matches
     substring_keys = [
         ("co-president", "Co-President"),
-        ("president", "President"),
+        ("vice", "Vice-President"),
         ("professional dev", "Professional Development"),
         ("prof dev", "Professional Development"),
         ("profdev", "Professional Development"),
@@ -922,7 +928,7 @@ def add_eboard(netid: str = None, name: str = None, grad_date: str = None, major
         if name:
             name_parts = name.split()
             first_name = name_parts[0] if name_parts else ''
-            last_name = name_parts[-1] if len(name_parts) > 1 else ''
+            last_name = " ".join(name_parts[1:]) if len(name_parts) > 1 else ''
 
         # Normalize the position
         normalized_position = normalize_position(position)
