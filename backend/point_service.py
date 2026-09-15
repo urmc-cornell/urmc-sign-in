@@ -2,6 +2,7 @@ import os
 import re
 import json
 import requests
+from uuid import uuid4
 from urllib.parse import urlparse, parse_qs
 from dotenv import load_dotenv
 import pickle
@@ -24,7 +25,6 @@ def current_semester():
     else:
         return f"fa{year_short}"
 import io
-import mimetypes
 from PIL import Image, ImageOps
 from pillow_heif import register_heif_opener
 register_heif_opener()  # Adds HEIC/HEIF support to Pillow
@@ -130,7 +130,7 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
     try:
         token = credentials.token
         
-        # First get file metadata to determine file extension
+        # Check access to the Drive file before downloading it.
         metadata_url = f"https://www.googleapis.com/drive/v3/files/{file_id}"
         headers = {'Authorization': f'Bearer {token}'}
         
@@ -139,15 +139,6 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
             print(f"Failed to get file metadata for {name_for_logging}: {metadata_response.text}")
             return None
             
-        metadata = metadata_response.json()
-        file_name = metadata.get('name', 'unknown')
-        mime_type = metadata.get('mimeType', 'application/octet-stream')
-        
-        # Determine file extension
-        extension = mimetypes.guess_extension(mime_type) or '.jpg'
-        if extension == '.jpe':  # Fix common issue with jpeg extension
-            extension = '.jpeg'
-        
         # Download the file content
         download_url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
         download_response = requests.get(download_url, headers=headers)
@@ -156,43 +147,26 @@ def download_and_upload_headshot(file_id, netid, image_type, credentials, name_f
             print(f"Failed to download file for {name_for_logging}: {download_response.text}")
             return None
         
-        # Create file name for Supabase storage
-        supabase_filename = f"{netid.lower()}{image_type}{extension}"
-        
         # Process image: crop to square and convert to JPEG (handles HEIC, PNG, etc.)
         file_bytes = download_response.content
         file_bytes = crop_image_to_square(file_bytes)
         # crop_image_to_square always outputs JPEG, so force extension and mime
         extension = '.jpeg'
         mime_type = 'image/jpeg'
-        supabase_filename = f"{netid.lower()}{image_type}{extension}"
+        supabase_filename = f"{netid.lower()}{image_type}-{uuid4().hex}{extension}"
 
-        # Try to upload first, if it fails due to duplicate, delete and re-upload
+        # Upload a new object before callers save its URL. Keep the old object
+        # intact if either the upload or the subsequent database write fails.
         sb = get_client(env)
         try:
-            upload_response = sb.storage.from_("headshots").upload(
+            sb.storage.from_("headshots").upload(
                 f"eboard/{supabase_filename}",
                 file_bytes,
                 {"content-type": mime_type}
             )
         except Exception as e:
-            # If upload fails due to duplicate, delete existing file and re-upload
-            if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
-                try:
-                    # Delete the existing file
-                    delete_response = sb.storage.from_("headshots").remove([f"eboard/{supabase_filename}"])
-                    # Re-upload the new file
-                    upload_response = sb.storage.from_("headshots").upload(
-                        f"eboard/{supabase_filename}",
-                        file_bytes,
-                        {"content-type": mime_type}
-                    )
-                except Exception as replace_e:
-                    print(f"Failed to replace headshot for {name_for_logging}: {str(replace_e)}")
-                    return None
-            else:
-                print(f"Failed to upload headshot for {name_for_logging}: {str(e)}")
-                return None
+            print(f"Failed to upload headshot for {name_for_logging}: {str(e)}")
+            return None
         
         # Construct the public URL
         public_url = f"{get_supabase_url(env)}/storage/v1/object/public/headshots/eboard/{supabase_filename}"

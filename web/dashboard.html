@@ -45,6 +45,13 @@
             border-radius: 50%; animation: spin 0.8s linear infinite;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        #eboard-sheet input, #eboard-sheet select { box-sizing: border-box; }
+        #eboard-sheet select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        #eboard-sheet input[type="checkbox"] { width: auto; margin: 0 8px 0 0; }
+        #eboard-sheet table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        #eboard-sheet th, #eboard-sheet td { padding: 8px; border-bottom: 1px solid #ddd; text-align: left; }
+        #eboard-sheet td { max-width: 260px; overflow-wrap: anywhere; }
+        .sheet-table { overflow: auto; max-height: 450px; margin: 12px 0; }
     </style>
 </head>
 <body>
@@ -182,10 +189,10 @@
         </div>
 
         <div class="form-section">
-            <h2>Add E-board Members</h2>
+            <h2>Import Members</h2>
             <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                 <button type="button" id="eboard-form-btn" onclick="toggleEboardSource('form')"
-                        style="flex: 1; background-color: #4CAF50; color: white;">Google Form</button>
+                        style="flex: 1; background-color: #4CAF50; color: white;">Google Form (E-board)</button>
                 <button type="button" id="eboard-sheet-btn" onclick="toggleEboardSource('sheet')"
                         style="flex: 1; background-color: #ddd; color: #333;">Google Sheet</button>
             </div>
@@ -193,9 +200,22 @@
                 <input type="text" name="form_id" placeholder="Google Form ID or Link" required>
                 <button type="submit">Process Form</button>
             </form>
-            <form id="eboard-sheet" action="/process_sheet/eboard" method="POST" style="display: none;">
-                <input type="text" name="sheet_id" placeholder="Google Sheet ID or Link" required>
-                <button type="submit">Process Sheet</button>
+            <form id="eboard-sheet" style="display: none;">
+                <input type="text" id="member-sheet-id" placeholder="Google Sheet ID or Link" aria-label="Google Sheet ID or Link" required>
+                <label id="member-sheet-tab-label" hidden>Sheet tab <select id="member-sheet-tab"></select></label>
+                <button type="submit">Load Sheet</button>
+                <p id="member-sheet-message" role="status"></p>
+                <div id="member-sheet-mapping" hidden>
+                    <p>Map the email column to <strong>netid</strong> (the part before @cornell.edu). Choose which other columns to update; blank answers and ignored columns stay unchanged.</p>
+                    <div class="sheet-table"><table><thead><tr><th>Sheet header</th><th>Supabase member column</th></tr></thead><tbody id="member-sheet-columns"></tbody></table></div>
+                    <button type="button" id="member-sheet-show">Show People</button>
+                </div>
+                <div id="member-sheet-people" hidden>
+                    <label><input type="checkbox" id="member-sheet-all">Select everyone</label>
+                    <p style="font-size: 0.85em;">Choose one response per NetID. Select everyone uses the last sheet row for duplicate NetIDs. New people are added if a name is mapped. No eboard role is assigned automatically.</p>
+                    <div class="sheet-table"><table><thead id="member-sheet-head"></thead><tbody id="member-sheet-rows"></tbody></table></div>
+                    <button type="button" id="member-sheet-update" disabled>Update Selected People</button>
+                </div>
             </form>
         </div>
 
@@ -353,5 +373,6 @@
             }
         }
     </script>
+    <script src="/static/sheet-import.js" defer></script>
 </body>
 </html>

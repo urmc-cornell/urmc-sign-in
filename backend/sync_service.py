@@ -1,5 +1,4 @@
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from supabase_clients import get_client, get_supabase_url
 
 
@@ -14,6 +13,52 @@ def _retry(fn, max_attempts=3, base_delay=2.0):
             if attempt < max_attempts:
                 time.sleep(base_delay * (2 ** (attempt - 1)))
     raise last_error
+
+
+def _list_headshots(client):
+    """List every object in the headshots bucket, including nested folders."""
+    bucket = client.storage.from_("headshots")
+    files = []
+    pending = [""]
+    while pending:
+        folder = pending.pop()
+        offset = 0
+        while True:
+            entries = _retry(lambda: bucket.list(folder, {"limit": 1000, "offset": offset,
+                                                          "sortBy": {"column": "name", "order": "asc"}}))
+            for entry in entries:
+                path = "/".join(part for part in (folder, entry["name"]) if part)
+                if entry.get("id") is None and entry.get("metadata") is None:
+                    pending.append(path)
+                else:
+                    files.append({**entry, "name": path})
+            if len(entries) < 1000:
+                break
+            offset += len(entries)
+    return files
+
+
+def _transfer_headshots(source_env, destination_env, files, results):
+    """Transfer sequentially; never delete a destination object on upload failure."""
+    source = get_client(source_env)
+    downloaded = []
+    for info in files:
+        path = info["name"]
+        try:
+            data = _retry(lambda: source.storage.from_("headshots").download(path))
+            content_type = (info.get("metadata") or {}).get("mimetype") or "image/jpeg"
+            downloaded.append((path, data, content_type))
+        except Exception as error:
+            results["errors"].append(f"Headshot download {path}: {error}")
+    del source
+    destination = get_client(destination_env)
+    for path, data, content_type in downloaded:
+        try:
+            _retry(lambda: destination.storage.from_("headshots").upload(
+                path, data, {"content-type": content_type, "upsert": "true"}))
+            results["headshots"] += 1
+        except Exception as error:
+            results["errors"].append(f"Headshot upload {path}: {error}")
 
 
 def _diff_headshot_lists(src_files, dst_files):
@@ -79,7 +124,7 @@ def _delete_all_rows(client, table_name):
 def _delete_extra_headshots(client, src_file_list, dst_file_list):
     """Remove headshot files in destination that are not present in source."""
     src_names = {f["name"] for f in src_file_list}
-    extras = [f"eboard/{f['name']}" for f in dst_file_list if f["name"] not in src_names]
+    extras = [f["name"] for f in dst_file_list if f["name"] not in src_names]
     if extras:
         client.storage.from_("headshots").remove(extras)
     return len(extras)
@@ -95,7 +140,6 @@ def pull_from_production():
     destination client to write.
     """
     results = {"members": 0, "events": 0, "points": 0, "headshots": 0, "skipped_headshots": 0, "deleted_headshots": 0, "errors": []}
-    MAX_WORKERS = 8
 
     try:
         # ── Phase 1: READ db data + list production files ──
@@ -106,9 +150,10 @@ def pull_from_production():
 
         prod_file_list = []
         try:
-            prod_file_list = prod.storage.from_("headshots").list("eboard", {"limit": 1000})
+            prod_file_list = _list_headshots(prod)
         except Exception as e:
             results["errors"].append(f"Production storage list error: {str(e)}")
+            return results
 
         del prod
 
@@ -165,14 +210,10 @@ def pull_from_production():
         # Step 5: Diff headshot file lists + delete extras
         staging_file_list = []
         try:
-            staging_file_list = staging.storage.from_("headshots").list("eboard", {"limit": 1000})
+            staging_file_list = _list_headshots(staging)
         except Exception as e:
             results["errors"].append(f"Staging storage list error: {str(e)}")
 
-        try:
-            results["deleted_headshots"] = _delete_extra_headshots(staging, prod_file_list, staging_file_list)
-        except Exception as e:
-            results["errors"].append(f"Delete extra staging headshots: {str(e)}")
 
         changed_files = _diff_headshot_lists(prod_file_list, staging_file_list)
         results["skipped_headshots"] = len(prod_file_list) - len(changed_files)
@@ -180,53 +221,11 @@ def pull_from_production():
         del staging
 
         if changed_files:
-            # ── Phase 3: Download changed headshots from production (parallel) ──
-            prod2 = get_client("production")
+            _transfer_headshots("production", "staging", changed_files, results)
 
-            def _download_one(file_info):
-                name = file_info["name"]
-                path = f"eboard/{name}"
-                ctype = (file_info.get("metadata") or {}).get("mimetype", "image/jpeg")
-                data = _retry(lambda p=path: prod2.storage.from_("headshots").download(p))
-                return (path, data, ctype)
-
-            downloaded = []
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-                futures = {pool.submit(_download_one, fi): fi for fi in changed_files}
-                for future in as_completed(futures):
-                    fi = futures[future]
-                    try:
-                        downloaded.append(future.result())
-                    except Exception as e:
-                        results["errors"].append(f"Headshot download eboard/{fi['name']}: {str(e)}")
-
-            del prod2
-
-            # ── Phase 4: Upload changed headshots to staging (parallel) ──
-            staging2 = get_client("staging")
-
-            def _upload_one(item):
-                fpath, fbytes, content_type = item
-                def _do_upload():
-                    try:
-                        staging2.storage.from_("headshots").upload(
-                            fpath, fbytes, {"content-type": content_type, "x-upsert": "true"})
-                    except Exception:
-                        staging2.storage.from_("headshots").remove([fpath])
-                        staging2.storage.from_("headshots").upload(
-                            fpath, fbytes, {"content-type": content_type})
-                _retry(_do_upload)
-                return fpath
-
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-                futures = {pool.submit(_upload_one, item): item[0] for item in downloaded}
-                for future in as_completed(futures):
-                    path = futures[future]
-                    try:
-                        future.result()
-                        results["headshots"] += 1
-                    except Exception as e:
-                        results["errors"].append(f"Headshot upload {path}: {str(e)}")
+        if not results["errors"]:
+            cleanup_client = get_client("staging")
+            results["deleted_headshots"] = _delete_extra_headshots(cleanup_client, prod_file_list, staging_file_list)
 
     except Exception as e:
         results["errors"].append(f"Sync error: {str(e)}")
@@ -250,7 +249,6 @@ def push_to_production():
     destination client to write.
     """
     results = {"members": 0, "events": 0, "points": 0, "headshots": 0, "skipped_headshots": 0, "deleted_headshots": 0, "errors": []}
-    MAX_WORKERS = 8
 
     try:
         # ── Phase 1: READ db data + list staging files ──
@@ -261,9 +259,10 @@ def push_to_production():
 
         staging_file_list = []
         try:
-            staging_file_list = staging.storage.from_("headshots").list("eboard", {"limit": 1000})
+            staging_file_list = _list_headshots(staging)
         except Exception as e:
             results["errors"].append(f"Staging storage list error: {str(e)}")
+            return results
 
         del staging
 
@@ -320,14 +319,10 @@ def push_to_production():
         # Step 5: Diff headshot file lists + delete extras
         prod_file_list = []
         try:
-            prod_file_list = prod.storage.from_("headshots").list("eboard", {"limit": 1000})
+            prod_file_list = _list_headshots(prod)
         except Exception as e:
             results["errors"].append(f"Production storage list error: {str(e)}")
 
-        try:
-            results["deleted_headshots"] = _delete_extra_headshots(prod, staging_file_list, prod_file_list)
-        except Exception as e:
-            results["errors"].append(f"Delete extra production headshots: {str(e)}")
 
         changed_files = _diff_headshot_lists(staging_file_list, prod_file_list)
         results["skipped_headshots"] = len(staging_file_list) - len(changed_files)
@@ -335,53 +330,11 @@ def push_to_production():
         del prod
 
         if changed_files:
-            # ── Phase 3: Download changed headshots from staging (parallel) ──
-            staging2 = get_client("staging")
+            _transfer_headshots("staging", "production", changed_files, results)
 
-            def _download_one(file_info):
-                name = file_info["name"]
-                path = f"eboard/{name}"
-                ctype = (file_info.get("metadata") or {}).get("mimetype", "image/jpeg")
-                data = _retry(lambda p=path: staging2.storage.from_("headshots").download(p))
-                return (path, data, ctype)
-
-            downloaded = []
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-                futures = {pool.submit(_download_one, fi): fi for fi in changed_files}
-                for future in as_completed(futures):
-                    fi = futures[future]
-                    try:
-                        downloaded.append(future.result())
-                    except Exception as e:
-                        results["errors"].append(f"Headshot download eboard/{fi['name']}: {str(e)}")
-
-            del staging2
-
-            # ── Phase 4: Upload changed headshots to production (parallel) ──
-            prod2 = get_client("production")
-
-            def _upload_one(item):
-                fpath, fbytes, content_type = item
-                def _do_upload():
-                    try:
-                        prod2.storage.from_("headshots").upload(
-                            fpath, fbytes, {"content-type": content_type, "x-upsert": "true"})
-                    except Exception:
-                        prod2.storage.from_("headshots").remove([fpath])
-                        prod2.storage.from_("headshots").upload(
-                            fpath, fbytes, {"content-type": content_type})
-                _retry(_do_upload)
-                return fpath
-
-            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
-                futures = {pool.submit(_upload_one, item): item[0] for item in downloaded}
-                for future in as_completed(futures):
-                    path = futures[future]
-                    try:
-                        future.result()
-                        results["headshots"] += 1
-                    except Exception as e:
-                        results["errors"].append(f"Headshot upload {path}: {str(e)}")
+        if not results["errors"]:
+            cleanup_client = get_client("production")
+            results["deleted_headshots"] = _delete_extra_headshots(cleanup_client, staging_file_list, prod_file_list)
 
     except Exception as e:
         results["errors"].append(f"Sync error: {str(e)}")
